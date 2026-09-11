@@ -1,0 +1,69 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.22.0
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify installation
+        run: flutter doctor -v
+
+      - name: Analyze code
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build APK (arm64-v8a)
+        run: |
+          flutter build apk \
+            --release \
+            --target-platform android-arm64 \
+            --build-number ${{ github.run_number }}
+
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/flutter-apk/jiabanji-v8a-release.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jiabanji-arm64-v8a
+          path: build/app/outputs/flutter-apk/jiabanji-v8a-release.apk
+          retention-days: 30
+
+      - name: Upload APK to release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: 加班记 v1.0.${{ github.run_number }}
+          files: build/app/outputs/flutter-apk/jiabanji-v8a-release.apk
+          generate_release_notes: true
