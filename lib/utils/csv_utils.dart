@@ -54,7 +54,7 @@ class CsvUtils {
 
   /// 从CSV文件导入记录
   static Future<List<OvertimeRecord>> importFromCsv(String csvContent) async {
-    final rows = const CsvToListConverter(eFieldDelimiter: ',').convert(csvContent);
+    final rows = const CsvToListConverter(fieldDelimiter: ',').convert(csvContent);
     if (rows.isEmpty) return [];
 
     final records = <OvertimeRecord>[];

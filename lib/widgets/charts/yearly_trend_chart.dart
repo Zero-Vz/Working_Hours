@@ -47,7 +47,7 @@ class YearlyTrendChart extends StatelessWidget {
                     final idx = value.toInt() - 1;
                     if (idx >= 0 && idx < months.length) {
                       return SideTitleWidget(
-                        meta: meta,
+                        axisSide: meta.axisSide,
                         child: Text(months[idx], style: const TextStyle(fontSize: 10)),
                       );
                     }

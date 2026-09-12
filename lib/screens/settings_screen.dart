@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/records_provider.dart';
 import '../providers/settings_provider.dart';
-import '../utils/constants.dart';
 import '../utils/csv_utils.dart';
 
 /// 设置页

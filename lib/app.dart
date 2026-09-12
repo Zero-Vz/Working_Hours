@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/record_list_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/settings_screen.dart';
