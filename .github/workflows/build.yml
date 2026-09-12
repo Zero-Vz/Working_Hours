@@ -45,7 +45,8 @@ jobs:
           flutter build apk \
             --release \
             --target-platform android-arm64 \
-            --build-number ${{ github.run_number }}
+            --build-number ${{ github.run_number }} \
+            --verbose
 
       - name: Rename APK
         run: |
