@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/record_list_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/settings_screen.dart';
@@ -15,7 +16,9 @@ class JiabanjiApp extends StatelessWidget {
       darkTheme: _buildDarkTheme(),
       themeMode: ThemeMode.system,
       localizationsDelegates: const [
-        // 使用Flutter内置的中文本地化
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
         Locale('zh', 'CN'),
