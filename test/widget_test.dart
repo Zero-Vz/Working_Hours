@@ -16,8 +16,9 @@ void main() {
       const ProviderScope(child: JiabanjiApp()),
     );
 
-    // 等待异步操作完成
-    await tester.pumpAndSettle();
+    // 使用 pump 替代 pumpAndSettle，避免 FutureProvider 加载动画导致超时
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     // 验证应用启动后显示底部导航栏
     expect(find.byType(NavigationBar), findsOneWidget);
