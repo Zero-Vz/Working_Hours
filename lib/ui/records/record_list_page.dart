@@ -171,8 +171,8 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
             onPressed: () => _openBatchSettle(filter),
           ),
           IconButton(
-            tooltip: '选择日期',
-            icon: const Icon(Icons.calendar_month_outlined),
+            tooltip: '选择精确日期',
+            icon: const Icon(Icons.event_available_outlined),
             onPressed: () => _pickDate(filter),
           ),
           const SizedBox(width: 4),

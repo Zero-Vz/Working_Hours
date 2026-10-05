@@ -108,9 +108,9 @@ void main() {
     expect(find.text('统计'), findsOneWidget);
     expect(find.text('月度'), findsOneWidget);
     expect(find.text('年度'), findsOneWidget);
-    expect(find.text('当月加班时长'), findsOneWidget);
-    expect(find.text('当月折算工时'), findsOneWidget);
-    expect(find.text('当月加班费'), findsOneWidget);
+    expect(find.text('月度加班时长'), findsOneWidget);
+    expect(find.text('月度折算工时'), findsOneWidget);
+    expect(find.text('月度加班费'), findsOneWidget);
 
     await tester.tap(find.text('年度'));
     await tester.pumpAndSettle();

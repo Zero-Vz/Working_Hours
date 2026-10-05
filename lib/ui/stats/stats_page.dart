@@ -113,7 +113,7 @@ class StatsPage extends ConsumerWidget {
               children: [
                   Expanded(
                     child: _MetricCard(
-                      title: byYear ? '全年加班时长' : '当月加班时长',
+                      title: byYear ? '全年加班时长' : '月度加班时长',
                       value: formatDuration(
                         byYear
                             ? yearly.effectiveMinutes
@@ -129,7 +129,7 @@ class StatsPage extends ConsumerWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _MetricCard(
-                      title: byYear ? '全年折算工时' : '当月折算工时',
+                      title: byYear ? '全年折算工时' : '月度折算工时',
                       value: formatHours(
                         byYear ? yearly.hours : monthly.hours,
                       ),
@@ -144,7 +144,7 @@ class StatsPage extends ConsumerWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _MetricCard(
-                      title: byYear ? '全年加班费' : '当月加班费',
+                      title: byYear ? '全年加班费' : '月度加班费',
                       value: formatMoney(
                         byYear ? yearly.amount : monthly.amount,
                       ),
@@ -165,7 +165,7 @@ class StatsPage extends ConsumerWidget {
               title: byYear ? '按加班类型汇总（全年）' : '按加班类型汇总',
               child: (byYear ? yearly.byType : monthly.byType).isEmpty
                   ? Text(
-                      byYear ? '该年度暂无记录' : '当月暂无记录',
+                      byYear ? '该年度暂无记录' : '该月暂无记录',
                       style: theme.textTheme.bodySmall,
                     )
                   : _buildTypeSummary(
@@ -239,7 +239,7 @@ class StatsPage extends ConsumerWidget {
                           color: scheme.primary,
                           labelEvery: 5,
                         )
-                      : _EmptyChart(theme: theme, text: '当月暂无数据'),
+                      : _EmptyChart(theme: theme, text: '该月暂无数据'),
                 ),
               ),
               const SizedBox(height: 16),
