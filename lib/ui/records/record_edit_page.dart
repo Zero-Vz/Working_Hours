@@ -38,10 +38,13 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
   late String _calcMode;
   late double _fixedWage;
 
+  /// 本条记录的休息分钟数（kFollowSettingsBreak 表示跟随设置）
+  late int _breakOverride;
+
   /// true：按开始 / 结束时间；false：按固定时长
   late bool _byRange;
 
-  /// 固定时长模式下的时长（分钟）
+  /// 固定时长模式下填写的实际加班时长（分钟，不含休息）
   late int _fixedDuration;
 
   /// 类型与倍率是否由日历自动带出
@@ -70,6 +73,14 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     _fixedDuration =
         record?.durationMinutes ?? calcDurationMinutes(_start, _end);
     if (_fixedDuration <= 0 || _fixedDuration >= 1440) _fixedDuration = 180;
+    _breakOverride = record?.breakMinutes ?? kFollowSettingsBreak;
+    if (record != null) {
+      // 记录存的是起止跨度（含休息），固定时长模式显示净时长
+      final effectiveBreak =
+          settings.deductBreak ? WorkCalc.breakMinutesOf(record, settings) : 0;
+      final net = record.durationMinutes - effectiveBreak;
+      if (net > 0) _fixedDuration = net.clamp(1, 1439);
+    }
     _compensatory = record?.isCompensatory ?? false;
     _settled = record?.isSettled ?? false;
     _projectController.text = record?.project ?? settings.defaultProject;
@@ -94,39 +105,54 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
 
   // ---------------------------------------------------------------- 计算预览
 
-  int get _durationMinutes =>
-      _byRange ? calcDurationMinutes(_start, _end) : _fixedDuration;
+  AppSettings get _settings => ref.read(settingsProvider);
+
+  /// 本条记录生效的休息分钟数
+  int get _breakMinutes =>
+      _breakOverride >= 0 ? _breakOverride : _settings.breakMinutes;
+
+  /// 是否扣除休息
+  bool get _deductBreak => _settings.deductBreak;
+
+  /// 存库的原始时长 = 起止跨度（含休息）
+  ///
+  /// 起止时间模式：直接取差值；
+  /// 固定时长模式：填写的是实际加班时长，跨度 = 时长 + 休息。
+  int get _durationMinutes => _byRange
+      ? calcDurationMinutes(_start, _end)
+      : _fixedDuration + (_deductBreak ? _breakMinutes : 0);
+
+  /// 扣除休息后的有效时长
+  int get _netMinutes => WorkCalc.effectiveMinutes(
+        _durationMinutes,
+        deductBreak: _deductBreak,
+        breakMinutes: _breakMinutes,
+      );
 
   bool get _crossDay => isOvernightRange(_start, _end);
 
-  bool get _timeInvalid => _byRange && _start == _end;
+  /// 起止时间相等，或含休息后跨度达到 24 小时
+  bool get _timeInvalid =>
+      (_byRange && _start == _end) || (!_byRange && _durationMinutes >= 1440);
 
-  int get _effectiveMinutes => WorkCalc.effectiveMinutes(
-        _durationMinutes,
-        deductBreak: ref.read(settingsProvider).deductBreak,
-        breakMinutes: ref.read(settingsProvider).breakMinutes,
-      );
+  int get _effectiveMinutes => _netMinutes;
 
   double get _hours {
-    final settings = ref.read(settingsProvider);
+    final settings = _settings;
     if (_calcMode == CalcModes.fixed) {
-      return WorkCalc.actualHours(
-        durationMinutes: _durationMinutes,
-        deductBreak: settings.deductBreak,
-        breakMinutes: settings.breakMinutes,
-      );
+      return _netMinutes / 60.0;
     }
     return WorkCalc.convertedHours(
       durationMinutes: _durationMinutes,
       rate: _rate,
-      deductBreak: settings.deductBreak,
-      breakMinutes: settings.breakMinutes,
+      deductBreak: _deductBreak,
+      breakMinutes: _breakMinutes,
       roundToMinute: settings.roundToMinute,
     );
   }
 
   double get _amount {
-    final settings = ref.read(settingsProvider);
+    final settings = _settings;
     if (_calcMode == CalcModes.fixed) {
       return WorkCalc.money(_hours, _fixedWage);
     }
@@ -182,7 +208,7 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
 
   void _syncEndFromDuration() {
     final start = parseTimeToMinutes(_start) ?? 0;
-    _end = minutesToTime(start + _fixedDuration);
+    _end = minutesToTime(start + _durationMinutes);
   }
 
   void _setByRange(bool value) {
@@ -191,7 +217,9 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     setState(() {
       _byRange = value;
       if (!value) {
-        _fixedDuration = current.clamp(1, 1439);
+        // 切到固定时长：填写的是净时长（跨度 - 休息），结束时间保持不变
+        final net = current - (_deductBreak ? _breakMinutes : 0);
+        _fixedDuration = net < 1 ? 1 : (net > 1439 ? 1439 : net);
         _syncEndFromDuration();
       }
     });
@@ -236,8 +264,14 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
               setDialogState(() => error = '加班时长必须大于 0');
               return;
             }
-            if (total >= 1440) {
-              setDialogState(() => error = '单次时长最多 23 小时 59 分');
+            // 固定时长模式下跨度还要加上休息，避免越过 24 小时
+            final limit = 1440 - (_deductBreak ? _breakMinutes : 0);
+            if (total >= limit) {
+              setDialogState(
+                () => error = (_deductBreak && _breakMinutes > 0)
+                    ? '加班时长 + 休息 $_breakMinutes 分最多 23 小时 59 分'
+                    : '单次时长最多 23 小时 59 分',
+              );
               return;
             }
             Navigator.of(dialogContext).pop(total);
@@ -346,6 +380,102 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     });
   }
 
+  /// 选择本条记录的休息时长（默认跟随设置）
+  Future<void> _pickBreakMinutes() async {
+    final settings = _settings;
+    final controller = TextEditingController(text: '$_breakMinutes');
+    String? error;
+
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            final value = int.tryParse(controller.text.trim());
+            if (value == null || value < 0 || value > 1440) {
+              setDialogState(() => error = '请输入 0-1440 分钟');
+              return;
+            }
+            Navigator.of(dialogContext).pop(value);
+          }
+
+          return AlertDialog(
+            title: const Text('本条记录的休息时长'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.sync_outlined, size: 16),
+                        label: Text(
+                          '跟随设置（${settings.breakMinutes} 分）',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () => Navigator.of(dialogContext)
+                            .pop(kFollowSettingsBreak),
+                      ),
+                      for (final value in const [0, 15, 30, 45, 60, 90])
+                        ActionChip(
+                          label: Text(
+                            '$value 分钟',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(value),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: '自定义分钟',
+                      errorText: error,
+                      isDense: true,
+                      prefixIcon: const Icon(Icons.timer_outlined),
+                    ),
+                    onSubmitted: (_) => submit(),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '开启扣休息时，结束时间 = 开始 + 加班时长 + 休息；'
+                    '起止时间模式下该休息时长用于扣除。',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: submit,
+                child: const Text('确定'),
+              ),
+            ],
+          );
+        },
+      ),
+    ).whenComplete(controller.dispose);
+
+    if (picked == null) return;
+    setState(() {
+      _breakOverride = picked;
+      if (!_byRange) _syncEndFromDuration();
+    });
+  }
+
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -356,7 +486,11 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
       return;
     }
     if (_timeInvalid) {
-      _showMessage('结束时间不能等于开始时间');
+      _showMessage(
+        !_byRange && _durationMinutes >= 1440
+            ? '含休息后总时长超过 24 小时，请调整'
+            : '结束时间不能等于开始时间',
+      );
       return;
     }
     if (!_byRange && (_fixedDuration <= 0 || _fixedDuration >= 1440)) {
@@ -383,6 +517,7 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
       rate: _rate,
       calcMode: _calcMode,
       fixedWage: _calcMode == CalcModes.fixed ? _fixedWage : 0,
+      breakMinutes: _breakOverride,
       project: _projectController.text.trim(),
       note: _noteController.text.trim(),
       isCompensatory: _compensatory,
@@ -537,7 +672,7 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
                       ),
                     ],
                   )
-                else ...[
+                else
                   Row(
                     children: [
                       Expanded(
@@ -550,21 +685,29 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
                       ),
                       Expanded(
                         child: ListTile(
-                          leading: const Icon(Icons.hourglass_bottom_outlined),
+                          leading:
+                              const Icon(Icons.hourglass_bottom_outlined),
                           title: const Text('加班时长'),
-                          subtitle: Text(formatDuration(_fixedDuration)),
+                          subtitle: Text(
+                            '${formatDuration(_fixedDuration)}'
+                            '${_deductBreak ? '（净）' : ''}',
+                          ),
                           onTap: _pickDuration,
                         ),
                       ),
                     ],
                   ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                _breakTile(theme, settings),
+                if (!_byRange) ...[
                   const Divider(height: 1, indent: 16, endIndent: 16),
                   ListTile(
                     leading: const Icon(Icons.stop_outlined),
                     enabled: false,
                     title: const Text('结束时间（自动计算）'),
                     subtitle: Text(
-                      '$_end${_crossDay ? '（次日）' : ''}',
+                      '$_end${_crossDay ? '（次日）' : ''}'
+                      '${_deductBreak ? '　含休息 $_breakMinutes 分' : ''}',
                       style: const TextStyle(color: Color(0xFF2E7D32)),
                     ),
                   ),
@@ -828,8 +971,40 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     );
   }
 
-  Widget _typeChip(ColorScheme scheme, String type) {
-    final selected = _type == type;
+  /// 休息时长（可单独设置，默认与设置一致）
+  Widget _breakTile(ThemeData theme, AppSettings settings) {
+    final scheme = theme.colorScheme;
+    final custom = _breakOverride >= 0;
+
+    return ListTile(
+      leading: const Icon(Icons.coffee_outlined),
+      title: const Text('休息时长'),
+      subtitle: Text(
+        !settings.deductBreak
+            ? '已关闭扣休息，暂不参与计算'
+            : custom
+                ? '仅本条记录生效（设置默认 ${settings.breakMinutes} 分钟）'
+                : '跟随设置（${settings.breakMinutes} 分钟），点击可单独修改',
+        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$_breakMinutes 分钟',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 2),
+          Icon(Icons.edit_outlined, size: 17, color: scheme.outline),
+        ],
+      ),
+      onTap: _pickBreakMinutes,
+    );
+  }
+
+  Widget _typeChip(ColorScheme scheme, String type) {    final selected = _type == type;
     final color = OvertimeTypes.colorOf(type);
     return ChoiceChip(
       label: Text(
@@ -857,15 +1032,17 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     AppSettings settings,
   ) {
     final effective = _effectiveMinutes;
-    final showDeduct = settings.deductBreak &&
-        settings.breakMinutes > 0 &&
+    final showDeduct = _deductBreak &&
+        _breakMinutes > 0 &&
         effective != _durationMinutes;
+    final spanInvalid = !_byRange && _durationMinutes >= 1440;
+    final invalid = _timeInvalid;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _timeInvalid
+        color: invalid
             ? scheme.errorContainer.withOpacity(0.6)
             : scheme.secondaryContainer.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
@@ -879,6 +1056,26 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
                 '时长：${formatDuration(_durationMinutes)}',
                 style: theme.textTheme.titleSmall,
               ),
+              if (showDeduct && !_byRange) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '含休息 $_breakMinutes 分',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onTertiaryContainer,
+                    ),
+                  ),
+                ),
+              ],
               if (_crossDay) ...[
                 const SizedBox(width: 8),
                 Container(
@@ -904,23 +1101,37 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
           if (showDeduct) ...[
             const SizedBox(height: 4),
             Text(
-              '扣除休息 ${settings.breakMinutes} 分钟 → 有效 ${formatDuration(effective)}',
+              _byRange
+                  ? '扣除休息 $_breakMinutes 分钟 → 有效 ${formatDuration(effective)}'
+                  : '休息 $_breakMinutes 分钟计入跨度 → 有效 ${formatDuration(effective)}',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.tertiary,
                 fontWeight: FontWeight.w600,
               ),
             ),
           ],
+          if (!_byRange && _deductBreak && !spanInvalid) ...[
+            const SizedBox(height: 2),
+            Text(
+              '$_start + ${formatDuration(_fixedDuration)} + 休息 $_breakMinutes 分 '
+              '→ $_end',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.outline,
+              ),
+            ),
+          ],
           const SizedBox(height: 4),
           Text(
-            _timeInvalid
-                ? '结束时间不能等于开始时间，请重新选择'
+            invalid
+                ? (spanInvalid
+                    ? '含休息后总时长超过 24 小时，请调整时长或休息时长'
+                    : '结束时间不能等于开始时间，请重新选择')
                 : _calcMode == CalcModes.fixed
                     ? '有效时长 ${formatHours(_hours)} 小时 × ¥${formatMoney(_fixedWage)}/小时'
                         '　预计金额 ¥${formatMoney(_amount)}'
                     : '折算 ${formatHours(_hours)} 小时　预计金额 ¥${formatMoney(_amount)}',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: _timeInvalid
+              color: invalid
                   ? scheme.error
                   : (_calcMode == CalcModes.fixed
                       ? scheme.tertiary

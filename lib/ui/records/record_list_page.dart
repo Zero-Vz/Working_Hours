@@ -5,11 +5,14 @@ import '../../core/constants.dart';
 import '../../core/utils/calc.dart';
 import '../../core/utils/time_utils.dart';
 import '../../data/models/app_settings.dart';
+import '../../data/models/leave_record.dart';
 import '../../data/models/overtime_record.dart';
 import '../../providers/filter_provider.dart';
+import '../../providers/leaves_provider.dart';
 import '../../providers/records_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/stats_provider.dart';
+import 'leave_edit_page.dart';
 import 'record_edit_page.dart';
 
 /// 记录列表页：按天 / 按月筛选、按项目搜索、左滑删除、点击编辑、按月批量结算
@@ -89,6 +92,14 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     );
   }
 
+  Future<void> _openLeaveEdit(LeaveRecord? record) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LeaveEditPage(record: record),
+      ),
+    );
+  }
+
   /// 按月批量修改结算状态
   Future<void> _openBatchSettle(RecordFilter filter) async {
     final month = filter.month;
@@ -156,20 +167,26 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     final scheme = Theme.of(context).colorScheme;
     final filter = ref.watch(recordFilterProvider);
     final query = ref.watch(searchQueryProvider);
+    final kind = ref.watch(recordKindProvider);
+    final leaveMode = kind == RecordKinds.leave;
     final records = ref.watch(filteredRecordsProvider);
+    final leaves = ref.watch(filteredLeavesProvider);
     final settings = ref.watch(settingsProvider);
     final messenger = ScaffoldMessenger.of(context);
     final summary = _Summary.of(records, settings);
+    final leaveSummary = _LeaveSummary.of(leaves);
+    final itemCount = leaveMode ? leaves.length : records.length;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('记工时'),
         actions: [
-          IconButton(
-            tooltip: '按月批量结算',
-            icon: const Icon(Icons.published_with_changes_outlined),
-            onPressed: () => _openBatchSettle(filter),
-          ),
+          if (!leaveMode)
+            IconButton(
+              tooltip: '按月批量结算',
+              icon: const Icon(Icons.published_with_changes_outlined),
+              onPressed: () => _openBatchSettle(filter),
+            ),
           IconButton(
             tooltip: '选择精确日期',
             icon: const Icon(Icons.event_available_outlined),
@@ -180,27 +197,45 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
       ),
       body: Column(
         children: [
-          _buildFilterBar(filter, query, summary),
+          _buildFilterBar(
+            filter,
+            query,
+            kind,
+            leaveMode,
+            summary,
+            leaveSummary,
+          ),
           Expanded(
-            child: records.isEmpty
-                ? _buildEmpty(scheme, query.trim().isNotEmpty, filter)
-                : ListView.builder(
-                    padding: const EdgeInsets.only(top: 4, bottom: 96),
-                    itemCount: records.length,
-                    itemBuilder: (context, index) => _buildItem(
-                      context,
-                      messenger,
-                      settings,
-                      records[index],
-                    ),
-                  ),
+            child: itemCount == 0
+                ? _buildEmpty(scheme, query.trim().isNotEmpty, filter, leaveMode)
+                : leaveMode
+                    ? ListView.builder(
+                        padding: const EdgeInsets.only(top: 4, bottom: 96),
+                        itemCount: leaves.length,
+                        itemBuilder: (context, index) => _buildLeaveItem(
+                          context,
+                          messenger,
+                          leaves[index],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.only(top: 4, bottom: 96),
+                        itemCount: records.length,
+                        itemBuilder: (context, index) => _buildItem(
+                          context,
+                          messenger,
+                          settings,
+                          records[index],
+                        ),
+                      ),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEdit(null),
+        onPressed: () =>
+            leaveMode ? _openLeaveEdit(null) : _openEdit(null),
         icon: const Icon(Icons.add),
-        label: const Text('新增记录'),
+        label: Text(leaveMode ? '新增请假' : '新增记录'),
       ),
     );
   }
@@ -208,7 +243,10 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
   Widget _buildFilterBar(
     RecordFilter filter,
     String query,
+    String kind,
+    bool leaveMode,
     _Summary summary,
+    _LeaveSummary leaveSummary,
   ) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -216,6 +254,31 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       child: Column(
         children: [
+          Center(
+            child: SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: RecordKinds.overtime,
+                  label: Text('加班记录'),
+                  icon: Icon(Icons.schedule_outlined, size: 16),
+                ),
+                ButtonSegment(
+                  value: RecordKinds.leave,
+                  label: Text('请假记录'),
+                  icon: Icon(Icons.beach_access_outlined, size: 16),
+                ),
+              ],
+              selected: {kind},
+              onSelectionChanged: (values) =>
+                  ref.read(recordKindProvider.notifier).state = values.first,
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
           Row(
             children: [
               IconButton(
@@ -276,7 +339,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
             onChanged: (value) =>
                 ref.read(searchQueryProvider.notifier).state = value,
             decoration: InputDecoration(
-              hintText: '搜索项目 / 备注 / 类型',
+              hintText: leaveMode ? '搜索理由 / 类型' : '搜索项目 / 备注 / 类型',
               isDense: true,
               prefixIcon: const Icon(Icons.search, size: 20),
               suffixIcon: query.isEmpty
@@ -292,7 +355,9 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
             ),
           ),
           const SizedBox(height: 8),
-          _buildSummary(scheme, summary, filter),
+          leaveMode
+              ? _buildLeaveSummary(scheme, leaveSummary, filter)
+              : _buildSummary(scheme, summary, filter),
         ],
       ),
     );
@@ -353,13 +418,74 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     );
   }
 
-  Widget _buildEmpty(ColorScheme scheme, bool searching, RecordFilter filter) {
+  Widget _buildLeaveSummary(
+    ColorScheme scheme,
+    _LeaveSummary summary,
+    RecordFilter filter,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            filter.byDay ? '当天 ${summary.count} 次' : '共 ${summary.count} 次',
+            style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+          ),
+          Text(
+            '共 ${formatDays(summary.days)} 天',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
+          ),
+          if (summary.paidDays > 0)
+            Text(
+              '带薪 ${formatDays(summary.paidDays)} 天',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF2E7D32)),
+            ),
+          if (summary.unpaidDays > 0)
+            Text(
+              '无薪 ${formatDays(summary.unpaidDays)} 天',
+              style: const TextStyle(fontSize: 12, color: Color(0xFFC62828)),
+            ),
+          Text(
+            summary.deduct > 0 ? '扣款 ¥${formatMoney(summary.deduct)}' : '不扣工资',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: summary.deduct > 0 ? scheme.error : scheme.tertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmpty(
+    ColorScheme scheme,
+    bool searching,
+    RecordFilter filter,
+    bool leaveMode,
+  ) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            searching ? Icons.search_off_outlined : Icons.event_note_outlined,
+            searching
+                ? Icons.search_off_outlined
+                : leaveMode
+                    ? Icons.beach_access_outlined
+                    : Icons.event_note_outlined,
             size: 56,
             color: scheme.outline,
           ),
@@ -367,15 +493,15 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
           Text(
             searching
                 ? '没有匹配的记录'
-                : filter.byDay
-                    ? '当天还没有加班记录'
-                    : '本月还没有加班记录',
+                : leaveMode
+                    ? (filter.byDay ? '当天还没有请假记录' : '本月还没有请假记录')
+                    : (filter.byDay ? '当天还没有加班记录' : '本月还没有加班记录'),
             style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
           ),
           if (!searching) ...[
             const SizedBox(height: 6),
             Text(
-              '点击右下角「新增记录」开始记工时',
+              leaveMode ? '点击右下角「新增请假」添加' : '点击右下角「新增记录」开始记工时',
               style: TextStyle(fontSize: 13, color: scheme.outline),
             ),
           ],
@@ -394,11 +520,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     final scheme = theme.colorScheme;
     final color = OvertimeTypes.colorOf(record.type);
     final hours = WorkCalc.hoursOf(record, settings);
-    final effective = WorkCalc.effectiveMinutes(
-      record.durationMinutes,
-      deductBreak: settings.deductBreak,
-      breakMinutes: settings.breakMinutes,
-    );
+    final effective = WorkCalc.effectiveMinutesOf(record, settings);
     final deducted = record.durationMinutes - effective;
 
     return Dismissible(
@@ -560,6 +682,127 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     );
   }
 
+  Widget _buildLeaveItem(
+    BuildContext context,
+    ScaffoldMessengerState messenger,
+    LeaveRecord record,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final color = LeaveTypes.colorOf(record.type);
+
+    return Dismissible(
+      key: ValueKey<int>(record.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 22),
+        color: Colors.red.shade400,
+        child: const Icon(Icons.delete_outline, color: Colors.white),
+      ),
+      confirmDismiss: (_) => _confirmDeleteLeave(context, record),
+      onDismissed: (_) {
+        ref.read(leavesProvider.notifier).delete(record.id);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              '已删除 ${formatDateShort(record.date)} 的请假记录',
+            ),
+            action: SnackBarAction(
+              label: '撤销',
+              onPressed: () => ref.read(leavesProvider.notifier).upsert(record),
+            ),
+          ),
+        );
+      },
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        elevation: 0,
+        clipBehavior: Clip.antiAlias,
+        color: scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: scheme.outlineVariant.withOpacity(0.5)),
+        ),
+        child: InkWell(
+          onTap: () => _openLeaveEdit(record),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(LeaveTypes.iconOf(record.type), size: 17, color: color),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '${formatDateCn(record.date)} ${weekdayCn(record.date)}',
+                        style: theme.textTheme.titleSmall,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        LeaveTypes.labelOf(record.type),
+                        style: TextStyle(fontSize: 12, color: color),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      '${formatDays(record.days)} 天',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        record.reason.isEmpty ? '未填写理由' : '理由：${record.reason}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: record.reason.isEmpty
+                              ? scheme.outline
+                              : scheme.onSurfaceVariant,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(
+                      record.actualDeduct > 0
+                          ? '- ¥${formatMoney(record.actualDeduct)}'
+                          : '不扣工资',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: record.actualDeduct > 0
+                            ? scheme.error
+                            : scheme.outline,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _tag(BuildContext context, {required String text, required Color color}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -582,6 +825,34 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
         content: Text(
           '确定删除 ${formatDateCn(record.date)} '
           '${record.startTime}-${record.endTime} 的加班记录吗？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(
+              '删除',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _confirmDeleteLeave(
+    BuildContext context,
+    LeaveRecord record,
+  ) {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除请假记录'),
+        content: Text(
+          '确定删除 ${formatDateCn(record.date)} 的请假记录吗？',
         ),
         actions: [
           TextButton(
@@ -625,11 +896,7 @@ class _Summary {
     var hours = 0.0;
     var amount = 0.0;
     for (final record in records) {
-      final effective = WorkCalc.effectiveMinutes(
-        record.durationMinutes,
-        deductBreak: settings.deductBreak,
-        breakMinutes: settings.breakMinutes,
-      );
+      final effective = WorkCalc.effectiveMinutesOf(record, settings);
       raw += record.durationMinutes;
       deducted += record.durationMinutes - effective;
       hours += WorkCalc.hoursOf(record, settings);
@@ -648,4 +915,44 @@ class _Summary {
 String _rateText(double rate) {
   final text = rate.toStringAsFixed(2);
   return text.replaceFirst(RegExp(r'\.00$'), '');
+}
+
+/// 当前筛选结果的请假汇总
+class _LeaveSummary {
+  const _LeaveSummary({
+    required this.count,
+    required this.days,
+    required this.paidDays,
+    required this.unpaidDays,
+    required this.deduct,
+  });
+
+  final int count;
+  final double days;
+  final double paidDays;
+  final double unpaidDays;
+  final double deduct;
+
+  factory _LeaveSummary.of(List<LeaveRecord> leaves) {
+    var days = 0.0;
+    var paid = 0.0;
+    var unpaid = 0.0;
+    var deduct = 0.0;
+    for (final item in leaves) {
+      days += item.days;
+      if (item.isPaid) {
+        paid += item.days;
+      } else {
+        unpaid += item.days;
+      }
+      deduct += item.actualDeduct;
+    }
+    return _LeaveSummary(
+      count: leaves.length,
+      days: days,
+      paidDays: paid,
+      unpaidDays: unpaid,
+      deduct: double.parse(deduct.toStringAsFixed(2)),
+    );
+  }
 }

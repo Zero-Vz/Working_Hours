@@ -4,6 +4,59 @@ import 'package:flutter/material.dart';
 class BoxNames {
   static const String records = 'records';
   static const String settings = 'settings';
+  static const String leaves = 'leaves';
+  static const String incomeItems = 'incomeItems';
+}
+
+/// 记录页展示的记录大类
+class RecordKinds {
+  static const String overtime = 'overtime';
+  static const String leave = 'leave';
+
+  static const List<String> all = [overtime, leave];
+
+  static String labelOf(String kind) => kind == leave ? '请假记录' : '加班记录';
+}
+
+/// 请假类型：带薪 / 无薪
+class LeaveTypes {
+  /// 带薪：不扣工资
+  static const String paid = 'paid';
+
+  /// 无薪：按填写金额扣工资
+  static const String unpaid = 'unpaid';
+
+  static const List<String> all = [paid, unpaid];
+
+  static String labelOf(String? type) => type == unpaid ? '无薪' : '带薪';
+
+  static bool isPaid(String? type) => type != unpaid;
+
+  static IconData iconOf(String? type) =>
+      type == unpaid ? Icons.beach_access_outlined : Icons.payments_outlined;
+
+  static Color colorOf(String? type) =>
+      type == unpaid ? const Color(0xFFC62828) : const Color(0xFF2E7D32);
+}
+
+/// 工资项类型：增项（补贴 / 绩效…）与扣项（税费 / 保险…）
+class IncomeKinds {
+  static const String income = 'income';
+  static const String deduct = 'deduct';
+
+  static const List<String> all = [income, deduct];
+
+  static String labelOf(String kind) => kind == deduct ? '扣项' : '增项';
+
+  static String hintOf(String kind) =>
+      kind == deduct ? '个税、社保、公积金…' : '补贴、绩效、奖金…';
+
+  static IconData iconOf(String kind) => kind == deduct
+      ? Icons.remove_circle_outline
+      : Icons.add_circle_outline;
+
+  static Color colorOf(String kind) =>
+      kind == deduct ? const Color(0xFFC62828) : const Color(0xFF2E7D32);
 }
 
 /// 加班类型及其内置默认倍率
@@ -82,6 +135,9 @@ class SalaryModes {
   static String normalize(String? value) => value == monthly ? monthly : hourly;
 }
 
+/// 记录休息时长取值：跟随设置
+const int kFollowSettingsBreak = -1;
+
 /// 月计薪天数（人社部规定的月平均工作日）
 const double kMonthlyPayDays = 21.75;
 
@@ -89,4 +145,4 @@ const double kMonthlyPayDays = 21.75;
 const double kDailyWorkHours = 8.0;
 
 /// 应用版本号（关于页展示）
-const String kAppVersion = '1.2.0';
+const String kAppVersion = '1.3.0';

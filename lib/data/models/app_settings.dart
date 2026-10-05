@@ -20,6 +20,9 @@ class AppSettings {
     this.roundToMinute = true,
     this.themeMode = 'system',
     this.defaultProject = '',
+    this.includeSalaryInTotal = false,
+    this.spreadToWorkdays = false,
+    this.showTotalSalary = false,
   });
 
   /// 时薪（元 / 小时，salaryMode 为 hourly 时生效）
@@ -54,6 +57,16 @@ class AppSettings {
 
   /// 默认项目名
   final String defaultProject;
+
+  /// 是否将月薪计入总工资（统计页「整月总工资」）
+  final bool includeSalaryInTotal;
+
+  /// 是否将月薪与固定工资项均摊到整月的每个工作日（每日金额趋势）
+  final bool spreadToWorkdays;
+
+  /// 统计页是否展示「整月总工资（含扣增）」：
+  /// true = 总工资卡 + 总金额趋势；false = 仅加班记录趋势
+  final bool showTotalSalary;
 
   ThemeMode get theme {
     switch (themeMode) {
@@ -106,6 +119,9 @@ class AppSettings {
     bool? roundToMinute,
     String? themeMode,
     String? defaultProject,
+    bool? includeSalaryInTotal,
+    bool? spreadToWorkdays,
+    bool? showTotalSalary,
   }) {
     return AppSettings(
       hourlyWage: hourlyWage ?? this.hourlyWage,
@@ -121,6 +137,9 @@ class AppSettings {
       roundToMinute: roundToMinute ?? this.roundToMinute,
       themeMode: themeMode ?? this.themeMode,
       defaultProject: defaultProject ?? this.defaultProject,
+      includeSalaryInTotal: includeSalaryInTotal ?? this.includeSalaryInTotal,
+      spreadToWorkdays: spreadToWorkdays ?? this.spreadToWorkdays,
+      showTotalSalary: showTotalSalary ?? this.showTotalSalary,
     );
   }
 
@@ -130,6 +149,8 @@ class AppSettings {
         (box.get(key, defaultValue: fallback) as num?)?.toDouble() ?? fallback;
     int integer(String key, int fallback) =>
         (box.get(key, defaultValue: fallback) as num?)?.toInt() ?? fallback;
+    bool flag(String key, {bool fallback = false}) =>
+        box.get(key, defaultValue: fallback) as bool? ?? fallback;
 
     return AppSettings(
       hourlyWage: number('hourlyWage', 0),
@@ -147,6 +168,9 @@ class AppSettings {
       themeMode:
           box.get('themeMode', defaultValue: 'system') as String? ?? 'system',
       defaultProject: box.get('defaultProject', defaultValue: '') as String? ?? '',
+      includeSalaryInTotal: flag('includeSalaryInTotal'),
+      spreadToWorkdays: flag('spreadToWorkdays'),
+      showTotalSalary: flag('showTotalSalary'),
     );
   }
 
@@ -165,5 +189,8 @@ class AppSettings {
         'roundToMinute': roundToMinute,
         'themeMode': themeMode,
         'defaultProject': defaultProject,
+        'includeSalaryInTotal': includeSalaryInTotal,
+        'spreadToWorkdays': spreadToWorkdays,
+        'showTotalSalary': showTotalSalary,
       });
 }

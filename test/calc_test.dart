@@ -201,6 +201,126 @@ void main() {
     });
   });
 
+  group('单条记录休息时长', () {
+    const settings = AppSettings(
+      hourlyWage: 50,
+      deductBreak: true,
+      breakMinutes: 30,
+      roundToMinute: false,
+    );
+
+    OvertimeRecord record(int breakMinutes) {
+      final now = DateTime(2026, 10, 5, 9, 30);
+      return OvertimeRecord(
+        id: 3,
+        date: DateTime(2026, 10, 5),
+        startTime: '18:00',
+        endTime: '21:30',
+        durationMinutes: 210,
+        type: '工作日',
+        rate: 1.5,
+        breakMinutes: breakMinutes,
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
+
+    test('记录自带休息时长优先于设置', () {
+      expect(WorkCalc.breakMinutesOf(record(45), settings), 45);
+      expect(WorkCalc.effectiveMinutesOf(record(45), settings), 165);
+      expect(
+        WorkCalc.hoursOf(record(45), settings),
+        closeTo(165 * 1.5 / 60, 0.0001),
+      );
+    });
+
+    test('kFollowSettingsBreak 跟随设置', () {
+      expect(kFollowSettingsBreak, -1);
+      expect(WorkCalc.breakMinutesOf(record(kFollowSettingsBreak), settings), 30);
+      expect(WorkCalc.effectiveMinutesOf(record(kFollowSettingsBreak), settings), 180);
+    });
+
+    test('关闭扣休息时不扣除', () {
+      const off = AppSettings(hourlyWage: 50, deductBreak: false, breakMinutes: 30);
+      expect(WorkCalc.effectiveMinutesOf(record(45), off), 210);
+    });
+  });
+
+  group('整月总工资', () {
+    test('总工资 = 月薪 + 加班费 + 增项 - 扣项 - 请假扣款', () {
+      expect(
+        WorkCalc.totalSalary(
+          includeSalary: true,
+          monthlySalary: 8700,
+          overtimeAmount: 500,
+          incomeExtra: 300,
+          incomeDeduct: 200,
+          leaveDeduct: 100,
+        ),
+        9200.00,
+      );
+    });
+
+    test('不计入月薪时只统计加班与工资项', () {
+      expect(
+        WorkCalc.totalSalary(
+          includeSalary: false,
+          monthlySalary: 8700,
+          overtimeAmount: 500,
+          incomeExtra: 300,
+          incomeDeduct: 200,
+          leaveDeduct: 100,
+        ),
+        500.00,
+      );
+    });
+
+    test('全年按 12 个月汇总月薪与工资项', () {
+      expect(
+        WorkCalc.totalSalary(
+          includeSalary: true,
+          monthlySalary: 1000,
+          overtimeAmount: 2000,
+          incomeExtra: 100,
+          incomeDeduct: 50,
+          leaveDeduct: 0,
+          months: 12,
+        ),
+        14600.00,
+      );
+    });
+
+    test('全部为 0 时结果为 0', () {
+      expect(
+        WorkCalc.totalSalary(
+          includeSalary: false,
+          monthlySalary: 0,
+          overtimeAmount: 0,
+          incomeExtra: 0,
+          incomeDeduct: 0,
+          leaveDeduct: 0,
+        ),
+        0,
+      );
+    });
+  });
+
+  group('金额与天数格式化', () {
+    test('金额为 0 时直接显示 0', () {
+      expect(formatMoney(0), '0');
+      expect(formatMoney(123.4), '123.40');
+      expect(formatHours(0), '0');
+      expect(formatHours(4.5), '4.50');
+    });
+
+    test('天数去掉多余的小数 0', () {
+      expect(formatDays(1), '1');
+      expect(formatDays(1.5), '1.5');
+      expect(formatDays(0.5), '0.5');
+      expect(formatDays(2.0), '2');
+    });
+  });
+
   group('CSV 导出与解析', () {
     test('导出后重新解析结果一致', () {
       final now = DateTime(2026, 10, 5, 9, 30);
@@ -214,6 +334,7 @@ void main() {
         rate: 2,
         calcMode: CalcModes.fixed,
         fixedWage: 88.5,
+        breakMinutes: 45,
         project: '机房割接,含"引号"',
         note: '跨天加班',
         isCompensatory: false,
@@ -236,6 +357,7 @@ void main() {
       expect(item.rate, 2);
       expect(item.calcMode, CalcModes.fixed);
       expect(item.fixedWage, 88.5);
+      expect(item.breakMinutes, 45);
       expect(item.project, '机房割接,含"引号"');
       expect(item.note, '跨天加班');
       expect(item.isCompensatory, isFalse);
@@ -258,6 +380,8 @@ void main() {
       expect(parsed.single.calcMode, CalcModes.rate);
       expect(parsed.single.fixedWage, 0);
       expect(parsed.single.durationMinutes, 180);
+      // 旧文件没有休息时长列 → 跟随设置
+      expect(parsed.single.breakMinutes, kFollowSettingsBreak);
     });
   });
 }

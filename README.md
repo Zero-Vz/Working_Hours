@@ -10,10 +10,11 @@
 
 | 页面 | 功能 |
 | --- | --- |
-| 记录列表 | **按天 / 按月两种查看方式**（点日期选精确日期后只显示当天记录，也可一键切回整月）；‹ › 按天或按月前后翻页；按项目/备注/类型搜索；左滑删除（带撤销）；点击进入编辑；顶部按当前筛选范围汇总（含休息扣除提示）；**按月批量标记 / 取消「已结算」** |
-| 新增 / 编辑 | 日期选择器、开始/结束时间选择器，或**固定时长模式**（30分钟 ~ 23小时59分，含 3 小时、8 小时等快捷值，结束时间自动算出）；自动计算时长并支持跨天（+24h）；**按日历自动选定加班类型与倍率**（法定节假日→节假日 ×3、周末/放假连休→休息日 ×2、调休补班日→工作日 ×1.5、平日→工作日，可手动覆盖）；加班类型四个选项等宽对齐；**仅在「自定义」类型下**可修改倍率或改用固定加班时薪；时长 / 折算 / 金额实时预览并显示**休息时间扣除**；项目、备注（浮动标签位置一致）；是否调休、是否已结算；保存前校验 |
-| 统计 | **月度 / 年度双视图**：月度看单月三张指标卡（时长 / 折算工时 / 加班费，**等高对齐**）、类型汇总、每日柱状图、年度趋势；年度看全年三张指标卡、类型汇总、年度趋势折线与 12 个月柱状图；支持前后翻页与回到本月 / 今年 |
-| 设置 | **薪资录入方式：按时薪 或 按月薪（时薪 = 月薪 ÷ 21.75 ÷ 8，自动反推并重算）**；各类型默认倍率（**记录页只读，倍率统一在此处修改**）；默认固定加班时薪；默认项目；是否扣除休息时间（可设分钟数，**统计、折算与金额均按扣除后有效时长计算**）；折算工时是否四舍五入到分钟；主题外观；导出 CSV / 导入 CSV / 清空所有数据 |
+| 记录列表 | **加班记录 / 请假记录两种分段**（顶部一键切换，筛选、搜索、汇总随模式联动）；**按天 / 按月两种查看方式**（点日期选精确日期后只显示当天记录，也可一键切回整月）；‹ › 按天或按月前后翻页；按项目/备注/类型（或请假理由）搜索；左滑删除（带撤销）；点击进入编辑；顶部按当前筛选范围汇总（含休息扣除提示）；**按月批量标记 / 取消「已结算」**（仅加班）；请假汇总显示天数、带薪/无薪与扣款 |
+| 新增 / 编辑 | 日期选择器、开始/结束时间选择器，或**固定时长模式**（30分钟 ~ 23小时59分，含 3 小时、8 小时等快捷值，**填写的即为实际加班时长，结束时间 = 开始 + 时长 + 休息**）；**每条记录可单独设置休息时长**（默认「跟随设置」，也可选 0/15/30/45/60/90 分或自定义，位于时间卡片内）；自动计算时长并支持跨天（+24h）；**按日历自动选定加班类型与倍率**（法定节假日→节假日 ×3、周末/放假连休→休息日 ×2、调休补班日→工作日 ×1.5、平日→工作日，可手动覆盖）；加班类型四个选项等宽对齐；**仅在「自定义」类型下**可修改倍率或改用固定加班时薪；时长 / 折算 / 金额实时预览并显示**休息时间扣除**；项目、备注（浮动标签位置一致）；是否调休、是否已结算；保存前校验 |
+| 请假记录 | 带薪 / 无薪切换、请假天数（0.5 天起，快捷值）、**请假理由**、**扣工资金额**（带薪恒为不扣除，无薪可手填或**按日薪一键估算**）；点击编辑、左滑删除；计入统计页的请假汇总与整月总工资 |
+| 统计 | **月度 / 年度双视图**：月度看单月三张指标卡（时长 / 折算工时 / 加班费，**等高对齐**）、**整月总工资（含扣增）明细卡**、类型汇总、请假汇总、**每日金额趋势（折线图 + 条形图，同一份数据）**；年度看全年三张指标卡、**全年总工资**、类型汇总、请假汇总、**每月金额趋势（折线 + 条形）**；长按图表显示**美化后的气泡提示**（数值为 0 时显示 `0`，其余两位小数）；支持前后翻页与回到本月 / 今年 |
+| 设置 | **分组 + 二级菜单**：薪资与时薪（**按时薪 或 按月薪，时薪 = 月薪 ÷ 21.75 ÷ 8**、各类型默认倍率、默认固定加班时薪）、计算规则（扣休息与默认休息时长、四舍五入、默认项目）、**工资项**（补贴 / 绩效 / 个税 / 保险等**自定义名称与个数**，增项、扣项分组统计）、**统计显示**（是否将月薪计入总工资、是否均摊到整月每个工作日、显示整月总工资还是仅加班趋势）、数据管理（加班 / 请假 CSV 导入导出、清空数据）；顶层保留主题外观与关于 |
 
 ## 技术栈
 
@@ -51,24 +52,38 @@ Working_Hours/
 │   │       └── calc.dart           # 折算工时 / 金额计算规则（倍率、固定时薪、扣休息）
 │   ├── data/
 │   │   ├── models/
-│   │   │   ├── overtime_record.dart   # 数据模型 + 手写 Hive TypeAdapter
-│   │   │   └── app_settings.dart      # 设置模型（时薪 / 月薪 / 默认时薪等）
+│   │   │   ├── overtime_record.dart   # 数据模型 + 手写 Hive TypeAdapter（含单条休息时长）
+│   │   │   ├── leave_record.dart      # 请假记录（带薪 / 无薪、天数、理由、扣款）
+│   │   │   ├── income_item.dart       # 工资项（增项 / 扣项，自定义名称与金额）
+│   │   │   └── app_settings.dart      # 设置模型（时薪 / 月薪 / 统计显示等）
 │   │   └── csv/
-│   │       └── record_csv_service.dart  # 导出 / 解析 CSV
+│   │       ├── record_csv_service.dart  # 加班记录导出 / 解析 CSV
+│   │       └── leave_csv_service.dart   # 请假记录导出 / 解析 CSV
 │   ├── providers/
 │   │   ├── records_provider.dart   # 记录增删改查、导入去重、按月批量结算、金额重算
+│   │   ├── leaves_provider.dart    # 请假记录增删改查、导入去重
+│   │   ├── income_items_provider.dart # 工资项管理与增项 / 扣项合计
 │   │   ├── settings_provider.dart  # 设置项
-│   │   ├── filter_provider.dart    # 按天 / 按月筛选、项目搜索
-│   │   └── stats_provider.dart     # 月度 / 年度 / 每日统计
+│   │   ├── filter_provider.dart    # 按天 / 按月筛选、项目搜索、加班 / 请假分段
+│   │   └── stats_provider.dart     # 月度 / 年度 / 每日统计、工资构成、金额趋势
 │   └── ui/
 │       ├── home/home_shell.dart    # 底部导航（记录 / 统计 / 设置）
 │       ├── records/record_list_page.dart
 │       ├── records/record_edit_page.dart
+│       ├── records/leave_edit_page.dart
 │       ├── stats/stats_page.dart
-│       └── settings/settings_page.dart
+│       └── settings/
+│           ├── settings_page.dart       # 设置首页（功能分组菜单）
+│           ├── settings_common.dart     # 二级页共用的弹窗与卡片组件
+│           ├── salary_settings_page.dart # 薪资与时薪 / 默认倍率
+│           ├── calc_settings_page.dart  # 计算规则（休息、取整、默认项目）
+│           ├── income_items_page.dart   # 工资项管理
+│           ├── stats_settings_page.dart # 统计显示口径
+│           └── data_settings_page.dart  # 数据管理（导入 / 导出 / 清空）
 ├── test/
-│   ├── calc_test.dart              # 时长 / 折算 / 金额 / 月薪 / 固定时薪 / CSV 单元测试
+│   ├── calc_test.dart              # 时长 / 折算 / 金额 / 月薪 / 固定时薪 / 总工资 / CSV 单元测试
 │   ├── holiday_test.dart           # 节假日与调休自动推断测试
+│   ├── leave_income_test.dart      # 请假记录与工资项模型 / CSV 测试
 │   └── page_smoke_test.dart        # 主要页面渲染与交互冒烟测试
 ├── pubspec.yaml
 ├── analysis_options.yaml
@@ -95,18 +110,19 @@ flutter run
 ## 构建 APK
 
 ```bash
-# 生成所有 ABI 的 APK
-flutter build apk --release
+# 只构建 arm64-v8a（本项目唯一需要的架构，体积最小）
+flutter build apk --release --target-platform android-arm64
 
-# 只生成 64 位 arm64-v8a（推荐，体积更小）
+# 如需一次生成全部架构的分包
 flutter build apk --release --split-per-abi
 ```
 
 产物路径：
 
 ```
-build/app/outputs/flutter-apk/app-arm64-v8a-release.apk     # arm64-v8a
-build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk   # armeabi-v7a
+build/app/outputs/flutter-apk/app-release.apk                      # 仅含 arm64-v8a（--target-platform）
+build/app/outputs/flutter-apk/app-arm64-v8a-release.apk            # split-per-abi 的 v8a 分包
+build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk          # split-per-abi 的 v7a 分包
 ```
 
 > Release 使用 debug 签名即可直接安装；如需自有签名，在
@@ -124,7 +140,8 @@ build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk   # armeabi-v7a
 
 1. 安装 JDK 17 与 Flutter 3.24.5（缓存依赖）
 2. `flutter pub get` → `flutter analyze` → `flutter test`
-3. `flutter build apk --release --split-per-abi`
+3. `flutter build apk --release --target-platform android-arm64`
+   （**只构建 arm64-v8a，不再产出 v7a / x86_64**）
 4. 上传 `working-hours-apk` 制品，其中
    **`Working_Hours-arm64-v8a-release.apk` 即为 v8a 安装包**（保留 30 天）
 
@@ -141,7 +158,7 @@ build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk   # armeabi-v7a
 
 ```bash
 git add .
-git commit -m "feat: 记工时 v1.2.0"
+git commit -m "feat: 记工时 v1.3.0"
 git branch -M main
 git remote add origin https://github.com/Zero-Vz/Working_Hours.git
 git push -u origin main
@@ -151,14 +168,19 @@ git push -u origin main
 
 | 项目 | 规则 |
 | --- | --- |
-| 时长 | `结束时间 - 开始时间`；结束时间早于等于开始时间时自动 **+24 小时**（跨天）；结束时间等于开始时间为非法输入，保存时拦截。也可用「固定时长」直接指定 3 小时、8 小时等，结束时间按开始时间 + 时长自动算出 |
-| 休息扣除 | 开启「扣除休息时间」后，`有效时长 = 时长 - 休息分钟数`，记录列表、统计与编辑页均显示**原始时长与扣除后的有效时长** |
+| 时长 | `结束时间 - 开始时间`；结束时间早于等于开始时间时自动 **+24 小时**（跨天）；结束时间等于开始时间为非法输入，保存时拦截 |
+| 固定时长 | 填写的**就是实际加班时长**：开启扣休息时 `结束时间 = 开始 + 时长 + 休息`，关闭时 `结束时间 = 开始 + 时长`，两种情况下有效时长都等于所填时长 |
+| 休息扣除 | 开启「扣除休息时间」后，`有效时长 = 时长 - 休息分钟数`；**每条记录的休息时长默认「跟随设置」，也可单独设置**（记录自带值优先），记录列表、统计与编辑页均显示原始时长与扣除后的有效时长 |
 | 折算工时（按倍率） | `有效时长 × 倍率`；开启「四舍五入到分钟」时先按分钟取整再换算小时 |
 | 折算工时（按固定时薪） | `有效时长`（不乘倍率），用于展示 |
 | 预计加班费（按倍率） | `折算工时 × 时薪`，保留两位小数 |
 | 预计加班费（按固定时薪） | `有效时长 × 固定加班时薪`，保留两位小数 |
 | 时薪 | 设置为「按时薪」时直接使用填写的值；设置为「按月薪」时 `时薪 = 月薪 ÷ 21.75 ÷ 8` |
 | 金额重算 | 修改时薪 / 月薪 / 默认固定时薪 / 休息 / 取整设置时，历史记录金额按新规则自动重算 |
+| 请假扣款 | 带薪请假恒为不扣除；无薪请假按记录填写的金额扣减，可按日薪（月薪 ÷ 21.75 或时薪 × 8）一键估算 |
+| 工资项 | 每月固定金额：增项（补贴、绩效…）相加，扣项（税费、保险…）相减，仅统计启用中的条目 |
+| 整月总工资 | `月薪（可选）+ 加班费 + 增项 - 扣项 - 请假扣款`；开启「月薪计入总工资」才计入月薪，**全年按 12 个月汇总月薪与工资项** |
+| 金额趋势 | 月度 = 每日金额（当天加班费，开启「均摊到每个工作日」时再加上平摊的月薪与工资项，不含请假扣款）；年度 = 每月金额（加班费 + 当月固定金额）；折线图与条形图使用同一份数据 |
 
 各类型默认倍率：工作日 1.5、休息日 2.0、节假日 3.0、自定义 1.0（均可在设置页修改，
 新增记录页仅在类型为「自定义」时才允许修改倍率 / 切换为固定加班时薪）。
@@ -179,16 +201,31 @@ git push -u origin main
 
 ## CSV 格式
 
-导出文件带 UTF-8 BOM（Excel 可直接打开中文），表头：
+导出文件带 UTF-8 BOM（Excel 可直接打开中文），可在「设置 → 数据管理」中导出 / 导入。
+
+### 加班记录
 
 ```csv
-id,date,startTime,endTime,durationMinutes,type,rate,calcMode,fixedWage,project,note,isCompensatory,isSettled,amount,createdAt,updatedAt
-7,2026-10-05,18:00,02:30,510,休息日,2.0,fixed,60,机房割接,跨天加班,false,true,510.00,2026-10-05T09:30:00.000,2026-10-05T09:30:00.000
+id,date,startTime,endTime,durationMinutes,type,rate,calcMode,fixedWage,breakMinutes,project,note,isCompensatory,isSettled,amount,createdAt,updatedAt
+7,2026-10-05,18:00,02:30,510,休息日,2.0,fixed,60,-1,机房割接,跨天加班,false,true,510.00,2026-10-05T09:30:00.000,2026-10-05T09:30:00.000
 ```
 
 - `calcMode`：`rate`（按倍率）/ `fixed`（按固定时薪）
-- 旧版 CSV（没有 `calcMode`、`fixedWage` 两列）仍然可以正常导入，默认按倍率计算
+- `breakMinutes`：`-1` 表示**跟随设置**，`>= 0` 表示本条记录单独的休息分钟数
+- 旧版 CSV（没有 `calcMode`、`fixedWage`、`breakMinutes` 等列）仍然可以正常导入，
+  默认按倍率计算、休息时长跟随设置
 - 导入时按 `日期 + 起止时间 + 项目 + 类型` 去重，重复记录自动跳过
+
+### 请假记录
+
+```csv
+id,date,days,type,reason,deductAmount,createdAt,updatedAt
+5,2026-10-05,1.5,unpaid,病假,650.50,2026-10-05T09:30:00.000,2026-10-05T09:30:00.000
+```
+
+- `type`：`paid`（带薪，不扣工资）/ `unpaid`（无薪，按 `deductAmount` 扣款），
+  兼容导入中文值「带薪 / 无薪」
+- 导入时按 `日期 + 类型 + 理由 + 天数` 去重，重复记录自动跳过
 
 ## 数据与隐私
 

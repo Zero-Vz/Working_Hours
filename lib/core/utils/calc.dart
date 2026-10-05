@@ -67,6 +67,37 @@ class WorkCalc {
     return double.parse(value.toStringAsFixed(2));
   }
 
+  /// 记录实际使用的休息分钟数（记录自带值优先，kFollowSettingsBreak 跟随设置）
+  static int breakMinutesOf(OvertimeRecord record, AppSettings settings) =>
+      record.breakMinutes >= 0 ? record.breakMinutes : settings.breakMinutes;
+
+  /// 记录扣除休息后的有效分钟数
+  static int effectiveMinutesOf(OvertimeRecord record, AppSettings settings) =>
+      effectiveMinutes(
+        record.durationMinutes,
+        deductBreak: settings.deductBreak,
+        breakMinutes: breakMinutesOf(record, settings),
+      );
+
+  /// 整月总工资 = 月薪（可选）+ 加班费 + 增项 - 扣项 - 请假扣款
+  static double totalSalary({
+    required bool includeSalary,
+    required double monthlySalary,
+    required double overtimeAmount,
+    required double incomeExtra,
+    required double incomeDeduct,
+    required double leaveDeduct,
+    int months = 1,
+  }) {
+    final salary = includeSalary ? monthlySalary * months : 0.0;
+    final value = salary +
+        overtimeAmount +
+        incomeExtra * months -
+        incomeDeduct * months -
+        leaveDeduct;
+    return double.parse(value.toStringAsFixed(2));
+  }
+
   /// 记录使用的固定加班时薪（记录自带值优先，缺失时回退到设置默认值）
   static double fixedWageOf(OvertimeRecord record, AppSettings settings) {
     return record.fixedWage > 0 ? record.fixedWage : settings.fixedWage;
@@ -75,17 +106,13 @@ class WorkCalc {
   /// 按记录 + 当前设置计算折算工时
   static double hoursOf(OvertimeRecord record, AppSettings settings) {
     if (record.calcMode == CalcModes.fixed) {
-      return actualHours(
-        durationMinutes: record.durationMinutes,
-        deductBreak: settings.deductBreak,
-        breakMinutes: settings.breakMinutes,
-      );
+      return effectiveMinutesOf(record, settings) / 60.0;
     }
     return convertedHours(
       durationMinutes: record.durationMinutes,
       rate: record.rate,
       deductBreak: settings.deductBreak,
-      breakMinutes: settings.breakMinutes,
+      breakMinutes: breakMinutesOf(record, settings),
       roundToMinute: settings.roundToMinute,
     );
   }
@@ -94,11 +121,7 @@ class WorkCalc {
   static double amountOf(OvertimeRecord record, AppSettings settings) {
     if (record.calcMode == CalcModes.fixed) {
       return money(
-        actualHours(
-          durationMinutes: record.durationMinutes,
-          deductBreak: settings.deductBreak,
-          breakMinutes: settings.breakMinutes,
-        ),
+        effectiveMinutesOf(record, settings) / 60.0,
         fixedWageOf(record, settings),
       );
     }

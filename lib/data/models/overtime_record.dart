@@ -21,6 +21,7 @@ class OvertimeRecord {
     required this.rate,
     this.calcMode = CalcModes.rate,
     this.fixedWage = 0,
+    this.breakMinutes = kFollowSettingsBreak,
     this.project = '',
     this.note = '',
     this.isCompensatory = false,
@@ -56,6 +57,12 @@ class OvertimeRecord {
 
   /// 固定加班时薪（元 / 小时，calcMode == fixed 时生效）
   double fixedWage;
+
+  /// 本条记录的休息分钟数（kFollowSettingsBreak 表示跟随设置）
+  int breakMinutes;
+
+  /// 是否自定义了本条记录的休息时长
+  bool get hasCustomBreak => breakMinutes >= 0;
 
   /// 项目
   String project;
@@ -95,6 +102,7 @@ class OvertimeRecord {
     double? rate,
     String? calcMode,
     double? fixedWage,
+    int? breakMinutes,
     String? project,
     String? note,
     bool? isCompensatory,
@@ -113,6 +121,7 @@ class OvertimeRecord {
       rate: rate ?? this.rate,
       calcMode: calcMode ?? this.calcMode,
       fixedWage: fixedWage ?? this.fixedWage,
+      breakMinutes: breakMinutes ?? this.breakMinutes,
       project: project ?? this.project,
       note: note ?? this.note,
       isCompensatory: isCompensatory ?? this.isCompensatory,
@@ -154,13 +163,14 @@ class OvertimeRecordAdapter extends TypeAdapter<OvertimeRecord> {
       updatedAt: DateTime.parse(fields[13] as String),
       calcMode: CalcModes.normalize(fields[14] as String?),
       fixedWage: (fields[15] as num?)?.toDouble() ?? 0,
+      breakMinutes: fields[16] as int? ?? kFollowSettingsBreak,
     );
   }
 
   @override
   void write(BinaryWriter writer, OvertimeRecord obj) {
     writer
-      ..writeByte(16)
+      ..writeByte(17)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -192,6 +202,8 @@ class OvertimeRecordAdapter extends TypeAdapter<OvertimeRecord> {
       ..writeByte(14)
       ..write(obj.calcMode)
       ..writeByte(15)
-      ..write(obj.fixedWage);
+      ..write(obj.fixedWage)
+      ..writeByte(16)
+      ..write(obj.breakMinutes);
   }
 }

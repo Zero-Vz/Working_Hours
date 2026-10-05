@@ -93,4 +93,22 @@ class SettingsNotifier extends Notifier<AppSettings> {
     state = state.copyWith(themeMode: value);
     _persist();
   }
+
+  /// 是否将月薪计入总工资
+  void setIncludeSalaryInTotal(bool value) {
+    state = state.copyWith(includeSalaryInTotal: value);
+    _persist();
+  }
+
+  /// 是否将月薪与固定工资项均摊到每个工作日
+  void setSpreadToWorkdays(bool value) {
+    state = state.copyWith(spreadToWorkdays: value);
+    _persist();
+  }
+
+  /// 统计页是否展示整月总工资（含扣增）
+  void setShowTotalSalary(bool value) {
+    state = state.copyWith(showTotalSalary: value);
+    _persist();
+  }
 }

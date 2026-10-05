@@ -1,8 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants.dart';
+import '../core/holidays.dart';
 import '../core/utils/calc.dart';
 import '../core/utils/time_utils.dart';
+import '../data/models/app_settings.dart';
+import '../data/models/leave_record.dart';
+import 'income_items_provider.dart';
+import 'leaves_provider.dart';
 import 'records_provider.dart';
 import 'settings_provider.dart';
 
@@ -80,6 +85,68 @@ class YearStats {
   int get effectiveMinutes => rawMinutes - deductedMinutes;
 }
 
+/// 请假汇总
+class LeaveSummary {
+  const LeaveSummary({
+    required this.count,
+    required this.days,
+    required this.paidDays,
+    required this.unpaidDays,
+    required this.deduct,
+  });
+
+  /// 请假条数
+  final int count;
+
+  /// 请假总天数
+  final double days;
+
+  /// 带薪天数
+  final double paidDays;
+
+  /// 无薪天数
+  final double unpaidDays;
+
+  /// 扣工资合计（带薪恒为 0）
+  final double deduct;
+
+  bool get isEmpty => count == 0;
+}
+
+/// 整月 / 全年工资构成
+class SalaryBreakdown {
+  const SalaryBreakdown({
+    required this.months,
+    required this.salary,
+    required this.overtime,
+    required this.incomeExtra,
+    required this.incomeDeduct,
+    required this.leaveDeduct,
+    required this.total,
+  });
+
+  /// 参与计算的月数（单月 = 1，全年 = 12）
+  final int months;
+
+  /// 计入的月薪合计
+  final double salary;
+
+  /// 加班费
+  final double overtime;
+
+  /// 工资增项合计
+  final double incomeExtra;
+
+  /// 工资扣项合计
+  final double incomeDeduct;
+
+  /// 请假扣款
+  final double leaveDeduct;
+
+  /// 总工资 = 月薪 + 加班费 + 增项 - 扣项 - 请假扣款
+  final double total;
+}
+
 /// 统计页：是否按年度查看（false = 月度，true = 年度）
 final statsByYearProvider = StateProvider<bool>((ref) => false);
 
@@ -90,7 +157,7 @@ final statsYearProvider = StateProvider<int>((ref) => DateTime.now().year);
 final statsMonthProvider =
     StateProvider<YearMonth>((ref) => YearMonth.of(DateTime.now()));
 
-/// 单月统计
+/// 单月加班统计
 final monthlyStatsProvider = Provider.family<MonthlyStats, YearMonth>(
   (ref, key) {
     final records = ref.watch(recordsProvider);
@@ -109,11 +176,7 @@ final monthlyStatsProvider = Provider.family<MonthlyStats, YearMonth>(
     for (final record in matched) {
       final recordHours = WorkCalc.hoursOf(record, settings);
       final recordAmount = WorkCalc.amountOf(record, settings);
-      final effective = WorkCalc.effectiveMinutes(
-        record.durationMinutes,
-        deductBreak: settings.deductBreak,
-        breakMinutes: settings.breakMinutes,
-      );
+      final effective = WorkCalc.effectiveMinutesOf(record, settings);
       rawMinutes += record.durationMinutes;
       deductedMinutes += record.durationMinutes - effective;
       hours += recordHours;
@@ -138,12 +201,9 @@ final monthlyStatsProvider = Provider.family<MonthlyStats, YearMonth>(
   },
 );
 
-/// 年度统计
+/// 年度加班统计
 final yearStatsProvider = Provider.family<YearStats, int>((ref, year) {
-  final months = [
-    for (var month = 1; month <= 12; month++)
-      ref.watch(monthlyStatsProvider(YearMonth(year, month))),
-  ];
+  final months = ref.watch(_yearStatsProvider(year));
 
   var count = 0;
   var rawMinutes = 0;
@@ -179,16 +239,109 @@ final yearStatsProvider = Provider.family<YearStats, int>((ref, year) {
   );
 });
 
-/// 年度趋势：12 个月的折算工时（小时）
-final yearTrendProvider = Provider.family<List<double>, int>((ref, year) {
-  final stats = ref.watch(_yearStatsProvider(year));
-  return stats.map((month) => month.hours).toList();
+/// 单月请假汇总
+final monthLeaveSummaryProvider =
+    Provider.family<LeaveSummary, YearMonth>((ref, key) {
+  final leaves = ref.watch(leavesProvider);
+  return _sumLeaves(
+    leaves.where((item) =>
+        item.date.year == key.year && item.date.month == key.month),
+  );
 });
 
-/// 年度金额：12 个月的预计金额
-final yearAmountProvider = Provider.family<List<double>, int>((ref, year) {
-  final stats = ref.watch(_yearStatsProvider(year));
-  return stats.map((month) => month.amount).toList();
+/// 全年请假汇总
+final yearLeaveSummaryProvider =
+    Provider.family<LeaveSummary, int>((ref, year) {
+  final leaves = ref.watch(leavesProvider);
+  return _sumLeaves(leaves.where((item) => item.date.year == year));
+});
+
+/// 单月工资构成（整月总工资卡）
+final monthBreakdownProvider =
+    Provider.family<SalaryBreakdown, YearMonth>((ref, key) {
+  final settings = ref.watch(settingsProvider);
+  final overtime = ref.watch(monthlyStatsProvider(key)).amount;
+  final leave = ref.watch(monthLeaveSummaryProvider(key));
+  final extra = ref.watch(incomeExtraTotalProvider);
+  final deduct = ref.watch(incomeDeductTotalProvider);
+  return _breakdown(
+    settings: settings,
+    months: 1,
+    overtime: overtime,
+    leaveDeduct: leave.deduct,
+    extra: extra,
+    deduct: deduct,
+  );
+});
+
+/// 全年工资构成
+final yearBreakdownProvider =
+    Provider.family<SalaryBreakdown, int>((ref, year) {
+  final settings = ref.watch(settingsProvider);
+  final overtime = ref.watch(yearStatsProvider(year)).amount;
+  final leave = ref.watch(yearLeaveSummaryProvider(year));
+  final extra = ref.watch(incomeExtraTotalProvider);
+  final deduct = ref.watch(incomeDeductTotalProvider);
+  return _breakdown(
+    settings: settings,
+    months: 12,
+    overtime: overtime,
+    leaveDeduct: leave.deduct,
+    extra: extra,
+    deduct: deduct,
+  );
+});
+
+/// 月度金额趋势：当月每天的金额（元），长度 = 当月天数
+///
+/// 展示总工资模式下，开启均摊时会把月薪与固定工资项平摊到每个工作日。
+final monthDailyAmountProvider =
+    Provider.family<List<double>, YearMonth>((ref, key) {
+  final records = ref.watch(recordsProvider);
+  final settings = ref.watch(settingsProvider);
+  final fixed = ref.watch(_fixedMonthlyProvider);
+  final days = DateTime(key.year, key.month + 1, 0).day;
+  final result = List<double>.filled(days, 0);
+
+  for (final record in records) {
+    if (record.date.year != key.year || record.date.month != key.month) continue;
+    result[record.date.day - 1] += WorkCalc.amountOf(record, settings);
+  }
+
+  if (fixed != 0 && settings.spreadToWorkdays) {
+    final workdays = _workdaysInMonth(key);
+    if (workdays > 0) {
+      final perDay = fixed / workdays;
+      for (var day = 1; day <= days; day++) {
+        if (_isWorkday(DateTime(key.year, key.month, day))) {
+          result[day - 1] += perDay;
+        }
+      }
+    }
+  }
+  return result;
+});
+
+/// 年度金额趋势：12 个月的金额（元）
+final yearAmountSeriesProvider =
+    Provider.family<List<double>, int>((ref, year) {
+  final settings = ref.watch(settingsProvider);
+  final monthly = ref.watch(_yearStatsProvider(year));
+  final fixed = ref.watch(_fixedMonthlyProvider);
+  return [
+    for (var i = 0; i < monthly.length; i++)
+      monthly[i].amount + (settings.showTotalSalary ? fixed : 0),
+  ];
+});
+
+/// 每月固定金额（月薪 + 增项 - 扣项），仅在展示总工资时计入
+final _fixedMonthlyProvider = Provider<double>((ref) {
+  final settings = ref.watch(settingsProvider);
+  if (!settings.showTotalSalary) return 0;
+  final salary = settings.includeSalaryInTotal ? settings.monthlySalary : 0;
+  final extra = ref.watch(incomeExtraTotalProvider);
+  final deduct = ref.watch(incomeDeductTotalProvider);
+  return salary + extra - deduct;
 });
 
 final _yearStatsProvider =
@@ -199,20 +352,74 @@ final _yearStatsProvider =
   ];
 });
 
-/// 月度柱状图：当月每天的折算工时（小时），长度 = 当月天数
-final monthDailyHoursProvider =
-    Provider.family<List<double>, YearMonth>((ref, key) {
-  final records = ref.watch(recordsProvider);
-  final settings = ref.watch(settingsProvider);
-  final days = DateTime(key.year, key.month + 1, 0).day;
-  final result = List<double>.filled(days, 0);
+SalaryBreakdown _breakdown({
+  required AppSettings settings,
+  required int months,
+  required double overtime,
+  required double leaveDeduct,
+  required double extra,
+  required double deduct,
+}) {
+  final salary =
+      settings.includeSalaryInTotal ? settings.monthlySalary * months : 0.0;
+  final total = WorkCalc.totalSalary(
+    includeSalary: settings.includeSalaryInTotal,
+    monthlySalary: settings.monthlySalary,
+    overtimeAmount: overtime,
+    incomeExtra: extra,
+    incomeDeduct: deduct,
+    leaveDeduct: leaveDeduct,
+    months: months,
+  );
+  return SalaryBreakdown(
+    months: months,
+    salary: salary,
+    overtime: overtime,
+    incomeExtra: extra * months,
+    incomeDeduct: deduct * months,
+    leaveDeduct: leaveDeduct,
+    total: total,
+  );
+}
 
-  for (final record in records) {
-    if (record.date.year != key.year || record.date.month != key.month) continue;
-    result[record.date.day - 1] += WorkCalc.hoursOf(record, settings);
+LeaveSummary _sumLeaves(Iterable<LeaveRecord> matched) {
+  var count = 0;
+  var days = 0.0;
+  var paidDays = 0.0;
+  var unpaidDays = 0.0;
+  var deduct = 0.0;
+  for (final item in matched) {
+    count++;
+    days += item.days;
+    if (item.isPaid) {
+      paidDays += item.days;
+    } else {
+      unpaidDays += item.days;
+    }
+    deduct += item.actualDeduct;
   }
-  return result;
-});
+  return LeaveSummary(
+    count: count,
+    days: days,
+    paidDays: paidDays,
+    unpaidDays: unpaidDays,
+    deduct: double.parse(deduct.toStringAsFixed(2)),
+  );
+}
+
+/// 是否为工作日（工作日 / 调休补班日）
+bool _isWorkday(DateTime date) =>
+    CalendarRules.autoTypeFor(date) == OvertimeTypes.weekday;
+
+/// 当月工作日天数
+int _workdaysInMonth(YearMonth key) {
+  final days = DateTime(key.year, key.month + 1, 0).day;
+  var count = 0;
+  for (var day = 1; day <= days; day++) {
+    if (_isWorkday(DateTime(key.year, key.month, day))) count++;
+  }
+  return count;
+}
 
 /// 按固定顺序输出类型汇总
 List<TypeSummary> _mergeTypeOrder(Map<String, List<double>> buckets) {

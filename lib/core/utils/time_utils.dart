@@ -56,8 +56,19 @@ String formatHours(double hours) {
   return text.replaceFirst(RegExp(r'\.00$'), '');
 }
 
-/// 金额格式化：保留两位小数
-String formatMoney(double value) => value.toStringAsFixed(2);
+/// 金额格式化：保留两位小数；为 0 时直接显示 0
+String formatMoney(double value) {
+  if (value == 0) return '0';
+  return value.toStringAsFixed(2);
+}
+
+/// 天数格式化：1 → 1，1.5 → 1.5（去掉多余的小数 0）
+String formatDays(double days) {
+  final rounded = (days * 100).roundToDouble() / 100;
+  return rounded == rounded.truncateToDouble()
+      ? '${rounded.toInt()}'
+      : '$rounded';
+}
 
 /// 2026-10-05
 String formatDateKey(DateTime date) =>

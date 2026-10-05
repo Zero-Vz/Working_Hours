@@ -7,30 +7,20 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
-import '../models/overtime_record.dart';
+import '../models/leave_record.dart';
 
-/// CSV 导出 / 导入（全部本地完成，不联网）
-class RecordCsvService {
-  const RecordCsvService._();
+/// 请假记录 CSV 导出 / 导入（全部本地完成，不联网）
+class LeaveCsvService {
+  const LeaveCsvService._();
 
   static const List<String> headers = <String>[
     'id',
     'date',
-    'startTime',
-    'endTime',
-    'durationMinutes',
+    'days',
     'type',
-    'rate',
-    'calcMode',
-    'fixedWage',
-    'breakMinutes',
-    'project',
-    'note',
-    'isCompensatory',
-    'isSettled',
-    'amount',
+    'reason',
+    'deductAmount',
     'createdAt',
     'updatedAt',
   ];
@@ -39,25 +29,16 @@ class RecordCsvService {
   static const String _bom = '\uFEFF';
 
   /// 生成 CSV 文本
-  static String exportToString(List<OvertimeRecord> records) {
+  static String exportToString(List<LeaveRecord> records) {
     final rows = <List<dynamic>>[List<dynamic>.of(headers)];
     for (final record in records) {
       rows.add(<dynamic>[
         record.id,
         formatDateKey(record.date),
-        record.startTime,
-        record.endTime,
-        record.durationMinutes,
+        record.days,
         record.type,
-        record.rate,
-        record.calcMode,
-        record.fixedWage,
-        record.breakMinutes,
-        record.project,
-        record.note,
-        record.isCompensatory,
-        record.isSettled,
-        record.amount,
+        record.reason,
+        record.actualDeduct,
         record.createdAt.toIso8601String(),
         record.updatedAt.toIso8601String(),
       ]);
@@ -66,21 +47,21 @@ class RecordCsvService {
   }
 
   /// 导出到临时目录并调用系统分享面板
-  static Future<File> exportAndShare(List<OvertimeRecord> records) async {
+  static Future<File> exportAndShare(List<LeaveRecord> records) async {
     final content = exportToString(records);
     final dir = await getTemporaryDirectory();
     final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
-    final file = File('${dir.path}/记工时_$stamp.csv');
+    final file = File('${dir.path}/记工时_请假_$stamp.csv');
     await file.writeAsString(content, flush: true);
     await Share.shareXFiles(
       <XFile>[XFile(file.path, mimeType: 'text/csv')],
-      text: '记工时 - 加班记录导出（共 ${records.length} 条）',
+      text: '记工时 - 请假记录导出（共 ${records.length} 条）',
     );
     return file;
   }
 
   /// 选择本地 CSV 并解析，返回 null 表示用户取消了选择
-  static Future<List<OvertimeRecord>?> pickAndParse() async {
+  static Future<List<LeaveRecord>?> pickAndParse() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.any,
       withData: true,
@@ -100,13 +81,12 @@ class RecordCsvService {
   }
 
   /// 解析 CSV 文本
-  static List<OvertimeRecord> parse(String rawText) {
+  static List<LeaveRecord> parse(String rawText) {
     var text = rawText;
     if (text.startsWith(_bom)) text = text.substring(1);
     text = text.trim();
     if (text.isEmpty) throw const FormatException('文件内容为空');
 
-    // 兼容不同换行符导出的文件（导出为 \r\n，手编辑文件常见 \n）
     List<List<dynamic>> convert(String eol) =>
         CsvToListConverter(shouldParseNumbers: false, eol: eol)
             .convert(text)
@@ -135,37 +115,22 @@ class RecordCsvService {
     }
 
     final now = DateTime.now();
-    final records = <OvertimeRecord>[];
+    final records = <LeaveRecord>[];
     for (var i = 1; i < rows.length; i++) {
       final row = rows[i];
       final date = DateTime.tryParse(value(row, 'date'));
-      final start = value(row, 'startTime');
-      final end = value(row, 'endTime');
-      if (date == null || start.isEmpty || end.isEmpty) continue;
-      if (parseTimeToMinutes(start) == null ||
-          parseTimeToMinutes(end) == null) {
-        continue;
-      }
+      if (date == null) continue;
+      final days = double.tryParse(value(row, 'days')) ?? 1;
+      final type = value(row, 'type').isEmpty ? 'paid' : value(row, 'type');
 
       records.add(
-        OvertimeRecord(
+        LeaveRecord(
           id: int.tryParse(value(row, 'id')) ?? 0,
           date: dateOnly(date),
-          startTime: start,
-          endTime: end,
-          durationMinutes: int.tryParse(value(row, 'durationMinutes')) ??
-              calcDurationMinutes(start, end),
-          type: value(row, 'type').isEmpty ? '工作日' : value(row, 'type'),
-          rate: double.tryParse(value(row, 'rate')) ?? 1.5,
-          calcMode: CalcModes.normalize(value(row, 'calcMode')),
-          fixedWage: double.tryParse(value(row, 'fixedWage')) ?? 0,
-          breakMinutes:
-              int.tryParse(value(row, 'breakMinutes')) ?? kFollowSettingsBreak,
-          project: value(row, 'project'),
-          note: value(row, 'note'),
-          isCompensatory: _bool(value(row, 'isCompensatory')),
-          isSettled: _bool(value(row, 'isSettled')),
-          amount: double.tryParse(value(row, 'amount')) ?? 0,
+          days: days <= 0 ? 1 : days,
+          type: type == '无薪' || type == 'unpaid' ? 'unpaid' : 'paid',
+          reason: value(row, 'reason'),
+          deductAmount: double.tryParse(value(row, 'deductAmount')) ?? 0,
           createdAt: DateTime.tryParse(value(row, 'createdAt')) ?? now,
           updatedAt: DateTime.tryParse(value(row, 'updatedAt')) ?? now,
         ),
@@ -177,9 +142,4 @@ class RecordCsvService {
 
   static String _str(dynamic value) =>
       value == null ? '' : value.toString().trim();
-
-  static bool _bool(String value) {
-    final text = value.toLowerCase();
-    return text == 'true' || text == '1' || text == 'yes';
-  }
 }

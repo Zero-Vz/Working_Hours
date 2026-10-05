@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/constants.dart';
 import '../core/utils/time_utils.dart';
+import '../data/models/leave_record.dart';
 import '../data/models/overtime_record.dart';
+import 'leaves_provider.dart';
 import 'records_provider.dart';
 
 /// 记录筛选条件：
@@ -69,4 +72,32 @@ final projectsProvider = Provider<List<String>>((ref) {
   }
   final list = set.toList()..sort();
   return list;
+});
+
+/// 记录页当前展示的大类：加班记录 / 请假记录
+final recordKindProvider = StateProvider<String>(
+  (ref) => RecordKinds.overtime,
+);
+
+/// 筛选条件 + 关键字过滤后的请假记录（日期倒序）
+final filteredLeavesProvider = Provider<List<LeaveRecord>>((ref) {
+  final leaves = ref.watch(leavesProvider);
+  final filter = ref.watch(recordFilterProvider);
+  final query = ref.watch(searchQueryProvider).trim().toLowerCase();
+
+  return leaves.where((record) {
+    if (filter.byDay) {
+      if (record.date.year != filter.date.year ||
+          record.date.month != filter.date.month ||
+          record.date.day != filter.date.day) {
+        return false;
+      }
+    } else if (record.date.year != filter.date.year ||
+        record.date.month != filter.date.month) {
+      return false;
+    }
+    if (query.isEmpty) return true;
+    return record.reason.toLowerCase().contains(query) ||
+        LeaveTypes.labelOf(record.type).contains(query);
+  }).toList();
 });

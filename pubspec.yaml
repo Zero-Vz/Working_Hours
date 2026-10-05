@@ -1,7 +1,7 @@
 name: working_hours
 description: 记工时 - 纯离线的加班工时记录、统计与导出应用（Material 3 / Riverpod / Hive / fl_chart）。
 publish_to: 'none'
-version: 1.2.0+2
+version: 1.3.0+3
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
