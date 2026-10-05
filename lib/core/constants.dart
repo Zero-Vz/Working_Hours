@@ -53,5 +53,40 @@ class OvertimeTypes {
   }
 }
 
+/// 单条记录的计算方式
+///
+/// - [rate]：按倍率，金额 = 有效时长 × 倍率 × 时薪
+/// - [fixed]：按固定加班时薪，金额 = 有效时长 × 固定加班时薪
+class CalcModes {
+  static const String rate = 'rate';
+  static const String fixed = 'fixed';
+
+  static const List<String> all = [rate, fixed];
+
+  static String labelOf(String mode) => mode == fixed ? '固定时薪' : '按倍率';
+
+  static String normalize(String? value) =>
+      value == fixed ? fixed : rate;
+}
+
+/// 薪资录入方式（用于反推时薪）
+class SalaryModes {
+  /// 直接填写时薪
+  static const String hourly = 'hourly';
+
+  /// 填写月薪，时薪 = 月薪 ÷ 21.75 ÷ 8
+  static const String monthly = 'monthly';
+
+  static const List<String> all = [hourly, monthly];
+
+  static String normalize(String? value) => value == monthly ? monthly : hourly;
+}
+
+/// 月计薪天数（人社部规定的月平均工作日）
+const double kMonthlyPayDays = 21.75;
+
+/// 每日标准工作小时数
+const double kDailyWorkHours = 8.0;
+
 /// 应用版本号（关于页展示）
-const String kAppVersion = '1.0.0';
+const String kAppVersion = '1.2.0';

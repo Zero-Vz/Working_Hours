@@ -30,6 +30,27 @@ class SettingsNotifier extends Notifier<AppSettings> {
     _recalc();
   }
 
+  /// 薪资录入方式：按时薪 / 按月薪（月薪 ÷ 21.75 ÷ 8）
+  void setSalaryMode(String mode) {
+    if (state.salaryMode == mode) return;
+    state = state.copyWith(salaryMode: mode);
+    _persist();
+    _recalc();
+  }
+
+  void setMonthlySalary(double value) {
+    state = state.copyWith(monthlySalary: value);
+    _persist();
+    _recalc();
+  }
+
+  /// 默认固定加班时薪
+  void setFixedWage(double value) {
+    state = state.copyWith(fixedWage: value);
+    _persist();
+    _recalc();
+  }
+
   void setDefaultProject(String value) {
     state = state.copyWith(defaultProject: value);
     _persist();

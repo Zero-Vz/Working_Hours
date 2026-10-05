@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
 import '../models/overtime_record.dart';
 
@@ -22,6 +23,8 @@ class RecordCsvService {
     'durationMinutes',
     'type',
     'rate',
+    'calcMode',
+    'fixedWage',
     'project',
     'note',
     'isCompensatory',
@@ -46,6 +49,8 @@ class RecordCsvService {
         record.durationMinutes,
         record.type,
         record.rate,
+        record.calcMode,
+        record.fixedWage,
         record.project,
         record.note,
         record.isCompensatory,
@@ -99,10 +104,18 @@ class RecordCsvService {
     text = text.trim();
     if (text.isEmpty) throw const FormatException('文件内容为空');
 
-    final rows = const CsvToListConverter(shouldParseNumbers: false)
-        .convert(text)
-        .where((row) => row.any((cell) => _str(cell).isNotEmpty))
-        .toList();
+    // 兼容不同换行符导出的文件（导出为 \r\n，手编辑文件常见 \n）
+    List<List<dynamic>> convert(String eol) =>
+        CsvToListConverter(shouldParseNumbers: false, eol: eol)
+            .convert(text)
+            .where((row) => row.any((cell) => _str(cell).isNotEmpty))
+            .toList();
+
+    var rows = convert('\r\n');
+    if (rows.length < 2 && text.contains('\n')) {
+      final lfRows = convert('\n');
+      if (lfRows.length > rows.length) rows = lfRows;
+    }
     if (rows.isEmpty) throw const FormatException('文件内容为空');
 
     final header = rows.first.map((cell) => _str(cell)).toList();
@@ -142,6 +155,8 @@ class RecordCsvService {
               calcDurationMinutes(start, end),
           type: value(row, 'type').isEmpty ? '工作日' : value(row, 'type'),
           rate: double.tryParse(value(row, 'rate')) ?? 1.5,
+          calcMode: CalcModes.normalize(value(row, 'calcMode')),
+          fixedWage: double.tryParse(value(row, 'fixedWage')) ?? 0,
           project: value(row, 'project'),
           note: value(row, 'note'),
           isCompensatory: _bool(value(row, 'isCompensatory')),

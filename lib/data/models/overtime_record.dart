@@ -1,12 +1,13 @@
 import 'package:hive/hive.dart';
 
+import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
 
 /// 加班记录数据模型
 ///
 /// 字段：
 /// id, date, startTime, endTime, durationMinutes,
-/// type, rate, project, note,
+/// type, rate, calcMode, fixedWage, project, note,
 /// isCompensatory, isSettled, amount,
 /// createdAt, updatedAt
 class OvertimeRecord {
@@ -18,6 +19,8 @@ class OvertimeRecord {
     required this.durationMinutes,
     required this.type,
     required this.rate,
+    this.calcMode = CalcModes.rate,
+    this.fixedWage = 0,
     this.project = '',
     this.note = '',
     this.isCompensatory = false,
@@ -45,8 +48,14 @@ class OvertimeRecord {
   /// 加班类型：工作日 / 休息日 / 节假日 / 自定义
   String type;
 
-  /// 倍率
+  /// 倍率（calcMode == rate 时生效）
   double rate;
+
+  /// 计算方式：rate（按倍率）/ fixed（按固定加班时薪）
+  String calcMode;
+
+  /// 固定加班时薪（元 / 小时，calcMode == fixed 时生效）
+  double fixedWage;
 
   /// 项目
   String project;
@@ -69,6 +78,9 @@ class OvertimeRecord {
   /// 是否跨天（结束时间早于等于开始时间）
   bool get isCrossDay => isOvernightRange(startTime, endTime);
 
+  /// 是否按固定加班时薪计算
+  bool get isFixedCalc => calcMode == CalcModes.fixed;
+
   /// 去重用的业务主键
   String get identityKey =>
       '${formatDateKey(date)}|$startTime|$endTime|$project|$type';
@@ -81,6 +93,8 @@ class OvertimeRecord {
     int? durationMinutes,
     String? type,
     double? rate,
+    String? calcMode,
+    double? fixedWage,
     String? project,
     String? note,
     bool? isCompensatory,
@@ -97,6 +111,8 @@ class OvertimeRecord {
       durationMinutes: durationMinutes ?? this.durationMinutes,
       type: type ?? this.type,
       rate: rate ?? this.rate,
+      calcMode: calcMode ?? this.calcMode,
+      fixedWage: fixedWage ?? this.fixedWage,
       project: project ?? this.project,
       note: note ?? this.note,
       isCompensatory: isCompensatory ?? this.isCompensatory,
@@ -136,13 +152,15 @@ class OvertimeRecordAdapter extends TypeAdapter<OvertimeRecord> {
       amount: (fields[11] as num?)?.toDouble() ?? 0,
       createdAt: DateTime.parse(fields[12] as String),
       updatedAt: DateTime.parse(fields[13] as String),
+      calcMode: CalcModes.normalize(fields[14] as String?),
+      fixedWage: (fields[15] as num?)?.toDouble() ?? 0,
     );
   }
 
   @override
   void write(BinaryWriter writer, OvertimeRecord obj) {
     writer
-      ..writeByte(14)
+      ..writeByte(16)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -170,6 +188,10 @@ class OvertimeRecordAdapter extends TypeAdapter<OvertimeRecord> {
       ..writeByte(12)
       ..write(obj.createdAt.toIso8601String())
       ..writeByte(13)
-      ..write(obj.updatedAt.toIso8601String());
+      ..write(obj.updatedAt.toIso8601String())
+      ..writeByte(14)
+      ..write(obj.calcMode)
+      ..writeByte(15)
+      ..write(obj.fixedWage);
   }
 }

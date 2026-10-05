@@ -57,6 +57,27 @@ class RecordsNotifier extends Notifier<List<OvertimeRecord>> {
     refresh();
   }
 
+  /// 按月批量修改结算状态，返回实际变更条数
+  Future<int> setSettledForMonth({
+    required int year,
+    required int month,
+    required bool settled,
+  }) async {
+    var changed = 0;
+    final now = DateTime.now();
+    for (final record in _box.values.toList()) {
+      if (record.date.year != year || record.date.month != month) continue;
+      if (record.isSettled == settled) continue;
+      record
+        ..isSettled = settled
+        ..updatedAt = now;
+      await _box.put(record.id, record);
+      changed++;
+    }
+    if (changed > 0) refresh();
+    return changed;
+  }
+
   /// 导入记录（按 日期+起止+项目+类型 去重），返回实际新增条数
   Future<int> importRecords(List<OvertimeRecord> incoming) async {
     final existing =

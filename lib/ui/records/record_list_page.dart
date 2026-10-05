@@ -12,7 +12,7 @@ import '../../providers/settings_provider.dart';
 import '../../providers/stats_provider.dart';
 import 'record_edit_page.dart';
 
-/// 记录列表页：按月筛选、按项目搜索、左滑删除、点击编辑
+/// 记录列表页：按天 / 按月筛选、按项目搜索、左滑删除、点击编辑、按月批量结算
 class RecordListPage extends ConsumerStatefulWidget {
   const RecordListPage({super.key});
 
@@ -29,17 +29,56 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     super.dispose();
   }
 
-  Future<void> _pickMonth(DateTime month) async {
+  String _labelOf(RecordFilter filter) => filter.byDay
+      ? '${formatDateCn(filter.date)} ${weekdayCn(filter.date)}'
+      : formatMonthCn(filter.date);
+
+  /// ‹ / › 按天或按月移动
+  void _shift(int delta) {
+    final filter = ref.read(recordFilterProvider);
+    if (filter.byDay) {
+      final next = DateTime(
+        filter.date.year,
+        filter.date.month,
+        filter.date.day + delta,
+      );
+      ref.read(recordFilterProvider.notifier).state =
+          filter.copyWith(date: dateOnly(next));
+    } else {
+      final next = DateTime(filter.date.year, filter.date.month + delta);
+      ref.read(recordFilterProvider.notifier).state =
+          filter.copyWith(date: dateOnly(next));
+    }
+  }
+
+  /// 选择精确日期（选中后按“当天”查看）
+  Future<void> _pickDate(RecordFilter filter) async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: month,
+      initialDate: filter.date,
       firstDate: DateTime(2015, 1, 1),
       lastDate: DateTime(2100, 12, 31),
       initialEntryMode: DatePickerEntryMode.calendarOnly,
     );
     if (picked == null) return;
-    ref.read(selectedMonthProvider.notifier).state =
-        DateTime(picked.year, picked.month);
+    ref.read(recordFilterProvider.notifier).state =
+        filter.copyWith(date: dateOnly(picked), byDay: true);
+  }
+
+  /// 当天 ↔ 当月 切换
+  void _toggleMode(RecordFilter filter) {
+    if (filter.byDay) {
+      ref.read(recordFilterProvider.notifier).state =
+          filter.copyWith(byDay: false);
+      return;
+    }
+    final today = dateOnly(DateTime.now());
+    final sameMonth =
+        today.year == filter.date.year && today.month == filter.date.month;
+    ref.read(recordFilterProvider.notifier).state = filter.copyWith(
+      date: sameMonth ? today : DateTime(filter.date.year, filter.date.month, 1),
+      byDay: true,
+    );
   }
 
   Future<void> _openEdit(OvertimeRecord? record) async {
@@ -50,35 +89,101 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     );
   }
 
+  /// 按月批量修改结算状态
+  Future<void> _openBatchSettle(RecordFilter filter) async {
+    final month = filter.month;
+    final stats = ref.read(monthlyStatsProvider(month));
+    final messenger = ScaffoldMessenger.of(context);
+    if (stats.count == 0) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text('${formatMonthCn(month.date)}暂无记录')),
+        );
+      return;
+    }
+
+    final settled = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('按月结算'),
+        content: Text(
+          '${formatMonthCn(month.date)} 共 ${stats.count} 条记录，'
+          '合计 ¥${formatMoney(stats.amount)}。\n\n'
+          '将该月全部记录批量改为已结算 / 未结算？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('全部未结算'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('全部已结算'),
+          ),
+        ],
+      ),
+    );
+    if (settled == null) return;
+
+    final changed = await ref
+        .read(recordsProvider.notifier)
+        .setSettledForMonth(
+          year: month.year,
+          month: month.month,
+          settled: settled,
+        );
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            changed == 0
+                ? '该月记录状态无需变更'
+                : '已将 ${formatMonthCn(month.date)} 的 $changed 条记录'
+                    '${settled ? '标记为已结算' : '改为未结算'}',
+          ),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final month = ref.watch(selectedMonthProvider);
+    final filter = ref.watch(recordFilterProvider);
     final query = ref.watch(searchQueryProvider);
     final records = ref.watch(filteredRecordsProvider);
     final settings = ref.watch(settingsProvider);
-    final stats = ref.watch(monthlyStatsProvider(YearMonth.of(month)));
     final messenger = ScaffoldMessenger.of(context);
+    final summary = _Summary.of(records, settings);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('记工时'),
         actions: [
           IconButton(
-            tooltip: '选择月份',
+            tooltip: '按月批量结算',
+            icon: const Icon(Icons.published_with_changes_outlined),
+            onPressed: () => _openBatchSettle(filter),
+          ),
+          IconButton(
+            tooltip: '选择日期',
             icon: const Icon(Icons.calendar_month_outlined),
-            onPressed: () => _pickMonth(month),
+            onPressed: () => _pickDate(filter),
           ),
           const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
-          _buildFilterBar(month, query),
-          _buildSummary(scheme, stats),
+          _buildFilterBar(filter, query, summary),
           Expanded(
             child: records.isEmpty
-                ? _buildEmpty(scheme, query.trim().isNotEmpty)
+                ? _buildEmpty(scheme, query.trim().isNotEmpty, filter)
                 : ListView.builder(
                     padding: const EdgeInsets.only(top: 4, bottom: 96),
                     itemCount: records.length,
@@ -100,7 +205,13 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     );
   }
 
-  Widget _buildFilterBar(DateTime month, String query) {
+  Widget _buildFilterBar(
+    RecordFilter filter,
+    String query,
+    _Summary summary,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       child: Column(
@@ -108,17 +219,15 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
           Row(
             children: [
               IconButton(
-                tooltip: '上一月',
+                tooltip: filter.byDay ? '前一天' : '上一月',
                 icon: const Icon(Icons.chevron_left),
-                onPressed: () => ref
-                    .read(selectedMonthProvider.notifier)
-                    .state = DateTime(month.year, month.month - 1),
+                onPressed: () => _shift(-1),
               ),
               Expanded(
                 child: Center(
                   child: InkWell(
                     borderRadius: BorderRadius.circular(8),
-                    onTap: () => _pickMonth(month),
+                    onTap: () => _pickDate(filter),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -128,14 +237,14 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            formatMonthCn(month),
-                            style: Theme.of(context).textTheme.titleMedium,
+                            _labelOf(filter),
+                            style: theme.textTheme.titleMedium,
                           ),
                           const SizedBox(width: 4),
                           Icon(
                             Icons.arrow_drop_down,
                             size: 20,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color: scheme.onSurfaceVariant,
                           ),
                         ],
                       ),
@@ -144,11 +253,21 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
                 ),
               ),
               IconButton(
-                tooltip: '下一月',
+                tooltip: filter.byDay ? '后一天' : '下一月',
                 icon: const Icon(Icons.chevron_right),
-                onPressed: () => ref
-                    .read(selectedMonthProvider.notifier)
-                    .state = DateTime(month.year, month.month + 1),
+                onPressed: () => _shift(1),
+              ),
+              const SizedBox(width: 2),
+              IconButton(
+                tooltip: filter.byDay ? '改为按月查看' : '改为按天查看',
+                icon: Icon(
+                  filter.byDay
+                      ? Icons.calendar_month_outlined
+                      : Icons.event_outlined,
+                  size: 21,
+                ),
+                color: scheme.primary,
+                onPressed: () => _toggleMode(filter),
               ),
             ],
           ),
@@ -173,15 +292,19 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
             ),
           ),
           const SizedBox(height: 8),
+          _buildSummary(scheme, summary, filter),
         ],
       ),
     );
   }
 
-  Widget _buildSummary(ColorScheme scheme, MonthlyStats stats) {
+  Widget _buildSummary(
+    ColorScheme scheme,
+    _Summary summary,
+    RecordFilter filter,
+  ) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 12),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: scheme.primaryContainer.withOpacity(0.55),
@@ -193,19 +316,24 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Text(
-            '共 ${stats.count} 条',
+            filter.byDay ? '当天 ${summary.count} 条' : '共 ${summary.count} 条',
             style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
           ),
           Text(
-            '时长 ${formatDuration(stats.rawMinutes)}',
+            '时长 ${formatDuration(summary.effectiveMinutes)}',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: scheme.onSurface,
             ),
           ),
+          if (summary.deductedMinutes > 0)
+            Text(
+              '（已扣休息 ${summary.deductedMinutes} 分）',
+              style: TextStyle(fontSize: 12, color: scheme.tertiary),
+            ),
           Text(
-            '折算 ${formatHours(stats.hours)} 小时',
+            '折算 ${formatHours(summary.hours)} 小时',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -213,7 +341,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
             ),
           ),
           Text(
-            '预计 ¥${formatMoney(stats.amount)}',
+            '预计 ¥${formatMoney(summary.amount)}',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -225,7 +353,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     );
   }
 
-  Widget _buildEmpty(ColorScheme scheme, bool searching) {
+  Widget _buildEmpty(ColorScheme scheme, bool searching, RecordFilter filter) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -237,7 +365,11 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
           ),
           const SizedBox(height: 12),
           Text(
-            searching ? '没有匹配的记录' : '本月还没有加班记录',
+            searching
+                ? '没有匹配的记录'
+                : filter.byDay
+                    ? '当天还没有加班记录'
+                    : '本月还没有加班记录',
             style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
           ),
           if (!searching) ...[
@@ -262,6 +394,12 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     final scheme = theme.colorScheme;
     final color = OvertimeTypes.colorOf(record.type);
     final hours = WorkCalc.hoursOf(record, settings);
+    final effective = WorkCalc.effectiveMinutes(
+      record.durationMinutes,
+      deductBreak: settings.deductBreak,
+      breakMinutes: settings.breakMinutes,
+    );
+    final deducted = record.durationMinutes - effective;
 
     return Dismissible(
       key: ValueKey<int>(record.id),
@@ -328,7 +466,9 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        '${record.type} ×${_rateText(record.rate)}',
+                        record.isFixedCalc
+                            ? '${record.type} ¥${formatMoney(record.fixedWage)}/时'
+                            : '${record.type} ×${_rateText(record.rate)}',
                         style: TextStyle(fontSize: 12, color: color),
                       ),
                     ),
@@ -344,7 +484,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      formatDuration(record.durationMinutes),
+                      formatDuration(effective),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -359,6 +499,16 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
                     ),
                   ],
                 ),
+                if (deducted > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '原始 ${formatDuration(record.durationMinutes)}'
+                    '　已扣休息 $deducted 分钟',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.tertiary,
+                    ),
+                  ),
+                ],
                 if (record.project.isNotEmpty || record.note.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
@@ -447,6 +597,50 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 当前筛选结果的汇总
+class _Summary {
+  const _Summary({
+    required this.count,
+    required this.rawMinutes,
+    required this.deductedMinutes,
+    required this.hours,
+    required this.amount,
+  });
+
+  final int count;
+  final int rawMinutes;
+  final int deductedMinutes;
+  final double hours;
+  final double amount;
+
+  int get effectiveMinutes => rawMinutes - deductedMinutes;
+
+  factory _Summary.of(List<OvertimeRecord> records, AppSettings settings) {
+    var raw = 0;
+    var deducted = 0;
+    var hours = 0.0;
+    var amount = 0.0;
+    for (final record in records) {
+      final effective = WorkCalc.effectiveMinutes(
+        record.durationMinutes,
+        deductBreak: settings.deductBreak,
+        breakMinutes: settings.breakMinutes,
+      );
+      raw += record.durationMinutes;
+      deducted += record.durationMinutes - effective;
+      hours += WorkCalc.hoursOf(record, settings);
+      amount += WorkCalc.amountOf(record, settings);
+    }
+    return _Summary(
+      count: records.length,
+      rawMinutes: raw,
+      deductedMinutes: deducted,
+      hours: hours,
+      amount: amount,
     );
   }
 }

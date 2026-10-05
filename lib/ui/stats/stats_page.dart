@@ -6,7 +6,7 @@ import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
 import '../../providers/stats_provider.dart';
 
-/// 统计页：本月汇总、类型汇总、年度趋势、月度柱状图
+/// 统计页：月度 / 年度切换查看
 class StatsPage extends ConsumerWidget {
   const StatsPage({super.key});
 
@@ -15,143 +15,269 @@ class StatsPage extends ConsumerWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final now = DateTime.now();
+    final byYear = ref.watch(statsByYearProvider);
     final year = ref.watch(statsYearProvider);
-    final monthKey = YearMonth.of(now);
-    final stats = ref.watch(monthlyStatsProvider(monthKey));
+    final monthKey = ref.watch(statsMonthProvider);
+
+    final monthly = ref.watch(monthlyStatsProvider(monthKey));
+    final yearly = ref.watch(yearStatsProvider(year));
     final trend = ref.watch(yearTrendProvider(year));
     final daily = ref.watch(monthDailyHoursProvider(monthKey));
-    final hasYearData = trend.any((value) => value > 0);
-    final hasMonthData = daily.any((value) => value > 0);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('统计'),
-        actions: [
-          IconButton(
-            tooltip: '上一年',
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () =>
-                ref.read(statsYearProvider.notifier).state = year - 1,
-          ),
-          InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => ref.read(statsYearProvider.notifier).state = now.year,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              child: Text(
-                '$year 年',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: '下一年',
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () =>
-                ref.read(statsYearProvider.notifier).state = year + 1,
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('统计')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '本月概览（${formatMonthCn(now)}）',
-              style: theme.textTheme.titleSmall,
+            // ---------------------------- 视图切换与周期选择
+            Center(
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('月度')),
+                  ButtonSegment(value: true, label: Text('年度')),
+                ],
+                selected: {byYear},
+                onSelectionChanged: (values) =>
+                    ref.read(statsByYearProvider.notifier).state = values.first,
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Row(
               children: [
+                IconButton(
+                  tooltip: byYear ? '上一年' : '上一月',
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: () {
+                    if (byYear) {
+                      ref.read(statsYearProvider.notifier).state = year - 1;
+                    } else {
+                      final next =
+                          DateTime(monthKey.year, monthKey.month - 1);
+                      ref.read(statsMonthProvider.notifier).state =
+                          YearMonth.of(next);
+                    }
+                  },
+                ),
                 Expanded(
-                  child: _MetricCard(
-                    title: '本月加班时长',
-                    value: formatDuration(stats.rawMinutes),
-                    icon: Icons.timelapse_outlined,
-                    color: scheme.primary,
-                    total: stats.count,
-                    unitSuffix: ' 条记录',
+                  child: Center(
+                    child: Text(
+                      byYear
+                          ? '$year 年'
+                          : '${monthKey.year}年${monthKey.month}月',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _MetricCard(
-                    title: '本月折算工时',
-                    value: formatHours(stats.hours),
-                    unit: '小时',
-                    icon: Icons.schedule_outlined,
-                    color: const Color(0xFF00897B),
-                  ),
+                IconButton(
+                  tooltip: byYear ? '下一年' : '下一月',
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: () {
+                    if (byYear) {
+                      ref.read(statsYearProvider.notifier).state = year + 1;
+                    } else {
+                      final next =
+                          DateTime(monthKey.year, monthKey.month + 1);
+                      ref.read(statsMonthProvider.notifier).state =
+                          YearMonth.of(next);
+                    }
+                  },
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _MetricCard(
-                    title: '本月加班费',
-                    value: formatMoney(stats.amount),
-                    unit: '元',
-                    prefix: '¥',
-                    icon: Icons.payments_outlined,
-                    color: const Color(0xFFB26A00),
-                  ),
+                IconButton(
+                  tooltip: byYear ? '回到今年' : '回到本月',
+                  icon: const Icon(Icons.today_outlined, size: 20),
+                  onPressed: () {
+                    if (byYear) {
+                      ref.read(statsYearProvider.notifier).state = now.year;
+                    } else {
+                      ref.read(statsMonthProvider.notifier).state =
+                          YearMonth.of(now);
+                    }
+                  },
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            _sectionCard(
-              theme,
-              title: '按加班类型汇总',
-              child: stats.byType.isEmpty
-                  ? Text('本月暂无记录', style: theme.textTheme.bodySmall)
-                  : _buildTypeSummary(theme, stats),
+            const SizedBox(height: 8),
+
+            // ---------------------------- 指标卡（三张等高）
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                  Expanded(
+                    child: _MetricCard(
+                      title: byYear ? '全年加班时长' : '当月加班时长',
+                      value: formatDuration(
+                        byYear
+                            ? yearly.effectiveMinutes
+                            : monthly.effectiveMinutes,
+                      ),
+                      icon: Icons.timelapse_outlined,
+                      color: scheme.primary,
+                      hint: byYear
+                          ? '${yearly.count} 条记录'
+                          : '${monthly.count} 条记录',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _MetricCard(
+                      title: byYear ? '全年折算工时' : '当月折算工时',
+                      value: formatHours(
+                        byYear ? yearly.hours : monthly.hours,
+                      ),
+                      unit: '小时',
+                      icon: Icons.schedule_outlined,
+                      color: const Color(0xFF00897B),
+                      hint: byYear
+                          ? '原始 ${formatDuration(yearly.rawMinutes)}'
+                          : '原始 ${formatDuration(monthly.rawMinutes)}',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _MetricCard(
+                      title: byYear ? '全年加班费' : '当月加班费',
+                      value: formatMoney(
+                        byYear ? yearly.amount : monthly.amount,
+                      ),
+                      unit: '元',
+                      prefix: '¥',
+                      icon: Icons.payments_outlined,
+                      color: const Color(0xFFB26A00),
+                      hint: byYear ? '$year 年累计' : '${monthKey.month} 月累计',
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 16),
+
+            // ---------------------------- 类型汇总
             _sectionCard(
               theme,
-              title: '$year 年度趋势（折算工时 / 小时）',
-              trailing: Text(
-                '全年 ${formatHours(trend.fold(0.0, (a, b) => a + b))} 小时',
-                style: theme.textTheme.bodySmall,
-              ),
-              child: SizedBox(
-                height: 240,
-                child: hasYearData
-                    ? _YearTrendChart(
-                        trend: trend,
-                        color: scheme.primary,
-                        scheme: scheme,
-                      )
-                    : _EmptyChart(theme: theme, text: '该年度暂无数据'),
-              ),
+              title: byYear ? '按加班类型汇总（全年）' : '按加班类型汇总',
+              child: (byYear ? yearly.byType : monthly.byType).isEmpty
+                  ? Text(
+                      byYear ? '该年度暂无记录' : '当月暂无记录',
+                      style: theme.textTheme.bodySmall,
+                    )
+                  : _buildTypeSummary(
+                      theme,
+                      byYear ? yearly.byType : monthly.byType,
+                      hours: byYear ? yearly.hours : monthly.hours,
+                      amount: byYear ? yearly.amount : monthly.amount,
+                    ),
             ),
             const SizedBox(height: 16),
-            _sectionCard(
-              theme,
-              title: '${formatMonthCn(now)} 每日加班（折算工时 / 小时）',
-              trailing: Text(
-                '共 ${stats.count} 条',
-                style: theme.textTheme.bodySmall,
+
+            // ---------------------------- 图表
+            if (byYear) ...[
+              _sectionCard(
+                theme,
+                title: '$year 年度趋势（折算工时 / 小时）',
+                trailing: Text(
+                  '全年 ${formatHours(yearly.hours)} 小时',
+                  style: theme.textTheme.bodySmall,
+                ),
+                child: SizedBox(
+                  height: 240,
+                  child: trend.any((value) => value > 0)
+                      ? _YearTrendChart(
+                          trend: trend,
+                          color: scheme.primary,
+                          scheme: scheme,
+                        )
+                      : _EmptyChart(theme: theme, text: '该年度暂无数据'),
+                ),
               ),
-              child: SizedBox(
-                height: 240,
-                child: hasMonthData
-                    ? _MonthDailyChart(daily: daily, color: scheme.primary)
-                    : _EmptyChart(theme: theme, text: '本月暂无数据'),
+              const SizedBox(height: 16),
+              _sectionCard(
+                theme,
+                title: '$year 年月度对比（折算工时 / 小时）',
+                trailing: Text(
+                  '共 ${yearly.count} 条',
+                  style: theme.textTheme.bodySmall,
+                ),
+                child: SizedBox(
+                  height: 240,
+                  child: trend.any((value) => value > 0)
+                      ? _BarChart(
+                          values: trend,
+                          labels: [
+                            for (var m = 1; m <= 12; m++) '$m月',
+                          ],
+                          color: scheme.primary,
+                          labelEvery: 1,
+                        )
+                      : _EmptyChart(theme: theme, text: '该年度暂无数据'),
+                ),
               ),
-            ),
+            ] else ...[
+              _sectionCard(
+                theme,
+                title: '${monthKey.year}年${monthKey.month}月 每日加班'
+                    '（折算工时 / 小时）',
+                trailing: Text(
+                  '共 ${monthly.count} 条',
+                  style: theme.textTheme.bodySmall,
+                ),
+                child: SizedBox(
+                  height: 240,
+                  child: daily.any((value) => value > 0)
+                      ? _BarChart(
+                          values: daily,
+                          labels: [
+                            for (var d = 1; d <= daily.length; d++) '$d',
+                          ],
+                          color: scheme.primary,
+                          labelEvery: 5,
+                        )
+                      : _EmptyChart(theme: theme, text: '当月暂无数据'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _sectionCard(
+                theme,
+                title: '$year 年度趋势（折算工时 / 小时）',
+                trailing: Text(
+                  '全年 ${formatHours(yearly.hours)} 小时',
+                  style: theme.textTheme.bodySmall,
+                ),
+                child: SizedBox(
+                  height: 240,
+                  child: trend.any((value) => value > 0)
+                      ? _YearTrendChart(
+                          trend: trend,
+                          color: scheme.primary,
+                          scheme: scheme,
+                        )
+                      : _EmptyChart(theme: theme, text: '该年度暂无数据'),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTypeSummary(ThemeData theme, MonthlyStats stats) {
+  Widget _buildTypeSummary(
+    ThemeData theme,
+    List<TypeSummary> items, {
+    required double hours,
+    required double amount,
+  }) {
     final scheme = theme.colorScheme;
     return Column(
       children: [
-        for (final item in stats.byType)
+        for (final item in items)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Row(
@@ -199,7 +325,7 @@ class StatsPage extends ConsumerWidget {
               ),
               const Spacer(),
               Text(
-                '${formatHours(stats.hours)} 小时',
+                '${formatHours(hours)} 小时',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: scheme.primary,
@@ -208,7 +334,7 @@ class StatsPage extends ConsumerWidget {
               SizedBox(
                 width: 92,
                 child: Text(
-                  '¥${formatMoney(stats.amount)}',
+                  '¥${formatMoney(amount)}',
                   textAlign: TextAlign.right,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w700,
@@ -261,26 +387,25 @@ class StatsPage extends ConsumerWidget {
   }
 }
 
+/// 指标卡：标题 / 数值 / 说明三段式，三张卡片高度保持一致
 class _MetricCard extends StatelessWidget {
   const _MetricCard({
     required this.title,
     required this.value,
     required this.icon,
     required this.color,
+    required this.hint,
     this.unit = '',
     this.prefix = '',
-    this.total = 0,
-    this.unitSuffix = '',
   });
 
   final String title;
   final String value;
   final String unit;
   final String prefix;
+  final String hint;
   final IconData icon;
   final Color color;
-  final int total;
-  final String unitSuffix;
 
   @override
   Widget build(BuildContext context) {
@@ -288,7 +413,7 @@ class _MetricCard extends StatelessWidget {
     final scheme = theme.colorScheme;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
       decoration: BoxDecoration(
         color: color.withOpacity(0.10),
         borderRadius: BorderRadius.circular(14),
@@ -313,9 +438,10 @@ class _MetricCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
             child: Text.rich(
               TextSpan(
                 children: [
@@ -336,15 +462,18 @@ class _MetricCard extends StatelessWidget {
               ),
             ),
           ),
-          if (unitSuffix.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              '$total$unitSuffix',
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 14,
+            child: Text(
+              hint,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelSmall?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -466,19 +595,29 @@ class _YearTrendChart extends StatelessWidget {
   }
 }
 
-/// 月度每日柱状图（横轴 1-N 日）
-class _MonthDailyChart extends StatelessWidget {
-  const _MonthDailyChart({required this.daily, required this.color});
+/// 通用柱状图（每日 / 每月）
+class _BarChart extends StatelessWidget {
+  const _BarChart({
+    required this.values,
+    required this.labels,
+    required this.color,
+    required this.labelEvery,
+  });
 
-  final List<double> daily;
+  final List<double> values;
+  final List<String> labels;
   final Color color;
+
+  /// 标签显示间隔（1 = 全部显示）
+  final int labelEvery;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final maxValue = daily.fold<double>(0, (a, b) => a > b ? a : b);
+    final maxValue = values.fold<double>(0, (a, b) => a > b ? a : b);
     final maxY = maxValue <= 0 ? 1.0 : maxValue * 1.3;
     final interval = maxY / 4;
+    final dense = values.length > 28;
 
     return BarChart(
       BarChartData(
@@ -521,18 +660,20 @@ class _MonthDailyChart extends StatelessWidget {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 24,
+              reservedSize: dense ? 24 : 26,
               interval: 1,
               getTitlesWidget: (value, meta) {
-                final day = value.toInt();
-                if (day < 1 || day > daily.length) {
+                final index = value.toInt();
+                if (index < 1 || index > values.length) {
                   return const SizedBox.shrink();
                 }
-                final show = day == 1 || day % 5 == 0;
+                final show = labelEvery <= 1 ||
+                    index == 1 ||
+                    index % labelEvery == 0;
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    show ? '$day' : '',
+                    show ? labels[index - 1] : '',
                     style: const TextStyle(fontSize: 10),
                   ),
                 );
@@ -541,14 +682,14 @@ class _MonthDailyChart extends StatelessWidget {
           ),
         ),
         barGroups: [
-          for (var i = 0; i < daily.length; i++)
+          for (var i = 0; i < values.length; i++)
             BarChartGroupData(
               x: i + 1,
               barRods: [
                 BarChartRodData(
-                  toY: daily[i],
-                  width: daily.length > 28 ? 6 : 12,
-                  color: daily[i] > 0 ? color : scheme.outlineVariant,
+                  toY: values[i],
+                  width: dense ? 6 : 12,
+                  color: values[i] > 0 ? color : scheme.outlineVariant,
                   borderRadius: BorderRadius.circular(3),
                 ),
               ],

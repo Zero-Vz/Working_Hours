@@ -202,33 +202,98 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _header(theme, '计算设置'),
           _card(
             children: [
-              ListTile(
-                leading: const Icon(Icons.payments_outlined),
-                title: const Text('时薪'),
-                subtitle: const Text('用于计算预计加班费'),
-                trailing: Text(
-                  '¥${formatMoney(settings.hourlyWage)} / 小时',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: scheme.primary,
-                    fontWeight: FontWeight.w700,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: Center(
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: SalaryModes.hourly,
+                        label: Text('按时薪'),
+                      ),
+                      ButtonSegment(
+                        value: SalaryModes.monthly,
+                        label: Text('按月薪'),
+                      ),
+                    ],
+                    selected: {settings.salaryMode},
+                    onSelectionChanged: (values) {
+                      final monthly = values.first == SalaryModes.monthly;
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setSalaryMode(values.first);
+                      _toast(monthly
+                          ? '已切换为按月薪，全部金额已重算'
+                          : '已切换为按时薪，全部金额已重算');
+                    },
+                    showSelectedIcon: false,
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
                 ),
-                onTap: () async {
-                  final value = await _promptNumber(
-                    title: '设置时薪',
-                    label: '元 / 小时',
-                    initialValue: formatMoney(settings.hourlyWage),
-                    min: 0,
-                    max: 1000000,
-                  );
-                  if (value != null) {
-                    ref
-                        .read(settingsProvider.notifier)
-                        .setHourlyWage(value);
-                    _toast('时薪已更新，金额已重算');
-                  }
-                },
               ),
+              if (settings.useMonthlySalary)
+                ListTile(
+                  leading: const Icon(Icons.payments_outlined),
+                  title: const Text('月薪'),
+                  subtitle: Text(
+                    '时薪 = 月薪 ÷ 21.75 ÷ 8 '
+                    '= ¥${formatMoney(settings.effectiveHourlyWage)} / 小时',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  trailing: Text(
+                    '¥${formatMoney(settings.monthlySalary)}',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onTap: () async {
+                    final value = await _promptNumber(
+                      title: '设置月薪',
+                      label: '元 / 月',
+                      initialValue: formatMoney(settings.monthlySalary),
+                      min: 0,
+                      max: 10000000,
+                    );
+                    if (value != null) {
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setMonthlySalary(value);
+                      _toast('月薪已更新，金额已重算');
+                    }
+                  },
+                )
+              else
+                ListTile(
+                  leading: const Icon(Icons.payments_outlined),
+                  title: const Text('时薪'),
+                  subtitle: const Text('用于计算预计加班费'),
+                  trailing: Text(
+                    '¥${formatMoney(settings.hourlyWage)} / 小时',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onTap: () async {
+                    final value = await _promptNumber(
+                      title: '设置时薪',
+                      label: '元 / 小时',
+                      initialValue: formatMoney(settings.hourlyWage),
+                      min: 0,
+                      max: 1000000,
+                    );
+                    if (value != null) {
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setHourlyWage(value);
+                      _toast('时薪已更新，金额已重算');
+                    }
+                  },
+                ),
               const Divider(height: 1, indent: 16, endIndent: 16),
               for (final type in OvertimeTypes.all)
                 ListTile(
@@ -257,6 +322,34 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     }
                   },
                 ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.attach_money_outlined),
+                title: const Text('默认固定加班时薪'),
+                subtitle: const Text(
+                  '记录选择「自定义 + 固定时薪」时的默认值',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: Text(
+                  '¥${formatMoney(settings.fixedWage)} / 小时',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                onTap: () async {
+                  final value = await _promptNumber(
+                    title: '默认固定加班时薪',
+                    label: '元 / 小时',
+                    initialValue: formatMoney(settings.fixedWage),
+                    min: 0,
+                    max: 1000000,
+                  );
+                  if (value != null) {
+                    ref.read(settingsProvider.notifier).setFixedWage(value);
+                    _toast('已更新默认固定加班时薪');
+                  }
+                },
+              ),
             ],
           ),
           _card(
@@ -266,8 +359,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 title: const Text('扣除休息时间'),
                 subtitle: Text(
                   settings.deductBreak
-                      ? '每条记录扣除 ${settings.breakMinutes} 分钟'
+                      ? '每条记录扣除 ${settings.breakMinutes} 分钟，'
+                          '时长、折算与金额均按扣除后计算'
                       : '按完整时长计算',
+                  style: const TextStyle(fontSize: 12),
                 ),
                 value: settings.deductBreak,
                 onChanged: (value) {

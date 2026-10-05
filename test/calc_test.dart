@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:working_hours/core/constants.dart';
 import 'package:working_hours/core/utils/calc.dart';
 import 'package:working_hours/core/utils/time_utils.dart';
 import 'package:working_hours/data/csv/record_csv_service.dart';
@@ -106,6 +107,100 @@ void main() {
     });
   });
 
+  group('月薪反推时薪', () {
+    test('时薪 = 月薪 ÷ 21.75 ÷ 8', () {
+      expect(WorkCalc.hourlyFromMonthly(21750), closeTo(125, 0.0001));
+      expect(WorkCalc.hourlyFromMonthly(8700), closeTo(50, 0.0001));
+      expect(
+        const AppSettings(salaryMode: 'monthly', monthlySalary: 21750)
+            .effectiveHourlyWage,
+        closeTo(125, 0.0001),
+      );
+      // 月薪未填写时时薪回退为 0
+      expect(
+        const AppSettings(salaryMode: 'monthly', monthlySalary: 0)
+            .effectiveHourlyWage,
+        0,
+      );
+      expect(
+        const AppSettings(salaryMode: 'hourly', hourlyWage: 66)
+            .effectiveHourlyWage,
+        66,
+      );
+    });
+
+    test('月薪模式下按反推时薪计算金额', () {
+      const settings = AppSettings(
+        salaryMode: 'monthly',
+        monthlySalary: 21750, // 时薪 125
+      );
+      final now = DateTime(2026, 10, 5, 9, 30);
+      final record = OvertimeRecord(
+        id: 1,
+        date: DateTime(2026, 10, 5),
+        startTime: '18:00',
+        endTime: '21:00',
+        durationMinutes: 180,
+        type: '工作日',
+        rate: 1.5,
+        createdAt: now,
+        updatedAt: now,
+      );
+      expect(WorkCalc.hoursOf(record, settings), closeTo(4.5, 0.0001));
+      expect(WorkCalc.amountOf(record, settings), 562.50);
+    });
+  });
+
+  group('固定加班时薪计算', () {
+    const settings = AppSettings(hourlyWage: 50, fixedWage: 60);
+
+    OvertimeRecord fixed({
+      int minutes = 180,
+      double wage = 0,
+      String type = '自定义',
+    }) {
+      final now = DateTime(2026, 10, 5, 9, 30);
+      return OvertimeRecord(
+        id: 2,
+        date: DateTime(2026, 10, 5),
+        startTime: '18:00',
+        endTime: '21:00',
+        durationMinutes: minutes,
+        type: type,
+        rate: 3,
+        calcMode: CalcModes.fixed,
+        fixedWage: wage,
+        amount: 0,
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
+
+    test('固定时薪：金额 = 有效时长 × 固定时薪（不乘倍率）', () {
+      // 3 小时 × 60 元 = 180 元，倍率 3 不参与计算
+      expect(WorkCalc.hoursOf(fixed(wage: 60), settings), closeTo(3, 0.0001));
+      expect(WorkCalc.amountOf(fixed(wage: 60), settings), 180.00);
+      expect(WorkCalc.fixedWageOf(fixed(wage: 60), settings), 60);
+    });
+
+    test('固定时薪：记录未填时薪时回退到设置默认值', () {
+      expect(WorkCalc.fixedWageOf(fixed(), settings), 60);
+      expect(WorkCalc.amountOf(fixed(), settings), 180.00);
+    });
+
+    test('固定时薪同样受扣除休息时间影响', () {
+      const deduct = AppSettings(
+        hourlyWage: 50,
+        fixedWage: 60,
+        deductBreak: true,
+        breakMinutes: 30,
+      );
+      final record = fixed(wage: 60);
+      expect(WorkCalc.amountOf(record, deduct), 150.00); // 150 分钟 × 60
+      expect(WorkCalc.hoursOf(record, deduct), closeTo(2.5, 0.0001));
+    });
+  });
+
   group('CSV 导出与解析', () {
     test('导出后重新解析结果一致', () {
       final now = DateTime(2026, 10, 5, 9, 30);
@@ -117,6 +212,8 @@ void main() {
         durationMinutes: calcDurationMinutes('18:00', '02:30'),
         type: '休息日',
         rate: 2,
+        calcMode: CalcModes.fixed,
+        fixedWage: 88.5,
         project: '机房割接,含"引号"',
         note: '跨天加班',
         isCompensatory: false,
@@ -137,6 +234,8 @@ void main() {
       expect(item.durationMinutes, 510);
       expect(item.type, '休息日');
       expect(item.rate, 2);
+      expect(item.calcMode, CalcModes.fixed);
+      expect(item.fixedWage, 88.5);
       expect(item.project, '机房割接,含"引号"');
       expect(item.note, '跨天加班');
       expect(item.isCompensatory, isFalse);
@@ -149,6 +248,16 @@ void main() {
         () => RecordCsvService.parse('18:00,21:00'),
         throwsFormatException,
       );
+    });
+
+    test('旧版 CSV（无 calcMode 列）按倍率解析', () {
+      const text = 'id,date,startTime,endTime,durationMinutes,type,rate,project\n'
+          '1,2026-10-05,18:00,21:00,180,工作日,1.5,机房';
+      final parsed = RecordCsvService.parse(text);
+      expect(parsed, hasLength(1));
+      expect(parsed.single.calcMode, CalcModes.rate);
+      expect(parsed.single.fixedWage, 0);
+      expect(parsed.single.durationMinutes, 180);
     });
   });
 }

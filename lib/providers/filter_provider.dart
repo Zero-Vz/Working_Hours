@@ -1,25 +1,55 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/utils/time_utils.dart';
 import '../data/models/overtime_record.dart';
 import 'records_provider.dart';
 
-/// 当前筛选的月份（每月 1 日）
-final selectedMonthProvider = StateProvider<DateTime>((ref) {
-  final now = DateTime.now();
-  return DateTime(now.year, now.month);
+/// 记录筛选条件：
+/// - [byDay] = false：按整月筛选（date 只取年月）
+/// - [byDay] = true：精确到某一天
+class RecordFilter {
+  const RecordFilter({required this.date, this.byDay = false});
+
+  /// 筛选日期（无时间部分）
+  final DateTime date;
+
+  /// 是否精确到天
+  final bool byDay;
+
+  YearMonth get month => YearMonth.of(date);
+
+  /// 切换到月份视图（保留当前年月）
+  DateTime get monthAnchor => DateTime(date.year, date.month);
+
+  RecordFilter copyWith({DateTime? date, bool? byDay}) => RecordFilter(
+        date: date ?? this.date,
+        byDay: byDay ?? this.byDay,
+      );
+}
+
+/// 当前筛选条件（默认：今天，按月查看）
+final recordFilterProvider = StateProvider<RecordFilter>((ref) {
+  return RecordFilter(date: dateOnly(DateTime.now()));
 });
 
 /// 项目搜索关键字
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
-/// 月份 + 关键字过滤后的记录（日期倒序）
+/// 筛选条件 + 关键字过滤后的记录（日期倒序）
 final filteredRecordsProvider = Provider<List<OvertimeRecord>>((ref) {
   final records = ref.watch(recordsProvider);
-  final month = ref.watch(selectedMonthProvider);
+  final filter = ref.watch(recordFilterProvider);
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
 
   return records.where((record) {
-    if (record.date.year != month.year || record.date.month != month.month) {
+    if (filter.byDay) {
+      if (record.date.year != filter.date.year ||
+          record.date.month != filter.date.month ||
+          record.date.day != filter.date.day) {
+        return false;
+      }
+    } else if (record.date.year != filter.date.year ||
+        record.date.month != filter.date.month) {
       return false;
     }
     if (query.isEmpty) return true;
