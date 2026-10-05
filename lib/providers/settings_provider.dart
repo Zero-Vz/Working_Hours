@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
 
 import '../core/constants.dart';
+import '../core/utils/time_utils.dart';
 import '../data/models/app_settings.dart';
 import 'records_provider.dart';
 
@@ -110,5 +111,88 @@ class SettingsNotifier extends Notifier<AppSettings> {
   void setShowTotalSalary(bool value) {
     state = state.copyWith(showTotalSalary: value);
     _persist();
+  }
+
+  /// 是否显示请假记录（记录页分段与统计页请假汇总 / 趋势）
+  void setShowLeaveRecords(bool value) {
+    state = state.copyWith(showLeaveRecords: value);
+    _persist();
+  }
+
+  /// 是否显示增扣项（统计页增扣金额卡与增扣趋势）
+  void setShowIncomeItems(bool value) {
+    state = state.copyWith(showIncomeItems: value);
+    _persist();
+  }
+
+  /// 记住新增记录的开始 / 结束时间与固定时长（下次新增直接带出）
+  void rememberEntry({
+    required String start,
+    required String end,
+    required int fixedDuration,
+  }) {
+    if (state.lastStartTime == start &&
+        state.lastEndTime == end &&
+        state.lastFixedDuration == fixedDuration) {
+      return;
+    }
+    state = state.copyWith(
+      lastStartTime: start,
+      lastEndTime: end,
+      lastFixedDuration: fixedDuration,
+    );
+    _persist();
+  }
+
+  /// 按月单独设置月薪（调薪月份）
+  void setSalaryOverride(int year, int month, double value) {
+    final overrides = Map<String, double>.from(state.salaryOverrides)
+      ..[yearMonthKey(year, month)] = value;
+    state = state.copyWith(salaryOverrides: overrides);
+    _persist();
+    _recalc();
+  }
+
+  /// 清除某月的月薪调整，恢复为默认月薪
+  void clearSalaryOverride(int year, int month) {
+    if (!state.salaryOverrides.containsKey(yearMonthKey(year, month))) return;
+    final overrides = Map<String, double>.from(state.salaryOverrides)
+      ..remove(yearMonthKey(year, month));
+    state = state.copyWith(salaryOverrides: overrides);
+    _persist();
+    _recalc();
+  }
+
+  /// 导入备份中的设置（仅接受已知键，导入后按新规则重算记录）
+  Future<void> applyImported(Map<String, dynamic> data) async {
+    const allowed = <String>{
+      'hourlyWage',
+      'salaryMode',
+      'monthlySalary',
+      'fixedWage',
+      'workdayRate',
+      'restDayRate',
+      'holidayRate',
+      'customRate',
+      'deductBreak',
+      'breakMinutes',
+      'roundToMinute',
+      'themeMode',
+      'defaultProject',
+      'includeSalaryInTotal',
+      'spreadToWorkdays',
+      'showTotalSalary',
+      'showLeaveRecords',
+      'showIncomeItems',
+      'salaryOverrides',
+    };
+    final payload = <String, dynamic>{
+      for (final entry in data.entries)
+        if (allowed.contains(entry.key)) entry.key: entry.value,
+    };
+    if (payload.isEmpty) return;
+    await _box.putAll(payload);
+    state = AppSettings.read(_box);
+    _recalc();
   }
 }

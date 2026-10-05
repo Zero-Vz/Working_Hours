@@ -20,7 +20,7 @@ class RecordKinds {
 
 /// 请假类型：带薪 / 无薪
 class LeaveTypes {
-  /// 带薪：不扣工资
+  /// 请假类型：带薪 / 无薪
   static const String paid = 'paid';
 
   /// 无薪：按填写金额扣工资
@@ -145,4 +145,4 @@ const double kMonthlyPayDays = 21.75;
 const double kDailyWorkHours = 8.0;
 
 /// 应用版本号（关于页展示）
-const String kAppVersion = '1.3.0';
+const String kAppVersion = '1.4.0';

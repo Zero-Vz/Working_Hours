@@ -70,6 +70,49 @@ class StatsSettingsPage extends ConsumerWidget {
               ),
             ],
           ),
+          settingsHeader(context, '显示内容'),
+          settingsCard(
+            context,
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.beach_access_outlined),
+                title: const Text('显示请假记录'),
+                subtitle: Text(
+                  settings.showLeaveRecords
+                      ? '记录页显示请假分段，统计页显示请假汇总与请假扣款趋势'
+                      : '隐藏记录页请假分段与统计页请假汇总、趋势',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                value: settings.showLeaveRecords,
+                onChanged: (value) {
+                  notifier.setShowLeaveRecords(value);
+                  _toast(
+                    context,
+                    value ? '已显示请假记录' : '已隐藏请假记录（数据保留）',
+                  );
+                },
+              ),
+              settingsDivider,
+              SwitchListTile(
+                secondary: const Icon(Icons.tune_outlined),
+                title: const Text('显示增扣项'),
+                subtitle: Text(
+                  settings.showIncomeItems
+                      ? '统计页显示增扣金额卡与增扣项趋势'
+                      : '隐藏统计页增扣金额卡与趋势（总工资明细不受影响）',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                value: settings.showIncomeItems,
+                onChanged: (value) {
+                  notifier.setShowIncomeItems(value);
+                  _toast(
+                    context,
+                    value ? '已显示增扣项' : '已隐藏增扣项（数据保留）',
+                  );
+                },
+              ),
+            ],
+          ),
           settingsHeader(context, '计算口径'),
           settingsCard(
             context,
@@ -78,10 +121,14 @@ class StatsSettingsPage extends ConsumerWidget {
                 padding: const EdgeInsets.all(14),
                 child: Text(
                   '· 整月总工资 = 月薪（可选）+ 加班费 + 增项 - 扣项 - 请假扣款\n'
-                  '· 全年总工资按 12 个月汇总月薪与固定工资项\n'
+                  '· 全年总工资按 12 个月逐月汇总，'
+                  '支持在「薪资与时薪 → 按月月薪」单独调整某个月\n'
+                  '· 工资项同样按月取值，未单独设置的月份使用默认金额\n'
                   '· 每日金额趋势 = 当天加班费'
                   '（开启均摊时再加上平摊的月薪与工资项），'
-                  '不含请假扣款\n'
+                  '不含请假扣款；请假扣款与增扣项各有独立趋势\n'
+                  '· 「显示请假 / 增扣项」只控制统计页与记录页的展示，'
+                  '不影响总工资的计算口径\n'
                   '· 关闭「显示整月总工资」后，统计只看加班记录',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,

@@ -62,6 +62,10 @@ String formatMoney(double value) {
   return value.toStringAsFixed(2);
 }
 
+/// 倍率格式化：统一保留两位小数（1.5 → 1.50、2 → 2.00），
+/// 保证设置页与记录页各处倍率长度一致
+String formatRate(double rate) => rate.toStringAsFixed(2);
+
 /// 天数格式化：1 → 1，1.5 → 1.5（去掉多余的小数 0）
 String formatDays(double days) {
   final rounded = (days * 100).roundToDouble() / 100;
@@ -102,6 +106,9 @@ class YearMonth {
 
   DateTime get date => DateTime(year, month);
 
+  /// 年月键（补零，可直接作为 Map 键）：2026-01
+  String get key => yearMonthKey(year, month);
+
   @override
   bool operator ==(Object other) =>
       other is YearMonth && other.year == year && other.month == month;
@@ -111,4 +118,17 @@ class YearMonth {
 
   @override
   String toString() => '$year-$month';
+}
+
+/// 年月键：2026-01（用于按月覆盖值的存储）
+String yearMonthKey(int year, int month) => '$year-${pad2(month)}';
+
+/// 解析年月键，非法返回 null
+YearMonth? parseYearMonthKey(String key) {
+  final parts = key.split('-');
+  if (parts.length != 2) return null;
+  final year = int.tryParse(parts[0]);
+  final month = int.tryParse(parts[1]);
+  if (year == null || month == null || month < 1 || month > 12) return null;
+  return YearMonth(year, month);
 }

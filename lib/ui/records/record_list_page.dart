@@ -168,10 +168,11 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     final filter = ref.watch(recordFilterProvider);
     final query = ref.watch(searchQueryProvider);
     final kind = ref.watch(recordKindProvider);
-    final leaveMode = kind == RecordKinds.leave;
+    final settings = ref.watch(settingsProvider);
+    final showLeave = settings.showLeaveRecords;
+    final leaveMode = showLeave && kind == RecordKinds.leave;
     final records = ref.watch(filteredRecordsProvider);
     final leaves = ref.watch(filteredLeavesProvider);
-    final settings = ref.watch(settingsProvider);
     final messenger = ScaffoldMessenger.of(context);
     final summary = _Summary.of(records, settings);
     final leaveSummary = _LeaveSummary.of(leaves);
@@ -202,6 +203,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
             query,
             kind,
             leaveMode,
+            showLeave,
             summary,
             leaveSummary,
           ),
@@ -245,6 +247,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
     String query,
     String kind,
     bool leaveMode,
+    bool showLeave,
     _Summary summary,
     _LeaveSummary leaveSummary,
   ) {
@@ -254,31 +257,32 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       child: Column(
         children: [
-          Center(
-            child: SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: RecordKinds.overtime,
-                  label: Text('加班记录'),
-                  icon: Icon(Icons.schedule_outlined, size: 16),
+          if (showLeave)
+            Center(
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: RecordKinds.overtime,
+                    label: Text('加班记录'),
+                    icon: Icon(Icons.schedule_outlined, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: RecordKinds.leave,
+                    label: Text('请假记录'),
+                    icon: Icon(Icons.beach_access_outlined, size: 16),
+                  ),
+                ],
+                selected: {kind},
+                onSelectionChanged: (values) =>
+                    ref.read(recordKindProvider.notifier).state = values.first,
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                ButtonSegment(
-                  value: RecordKinds.leave,
-                  label: Text('请假记录'),
-                  icon: Icon(Icons.beach_access_outlined, size: 16),
-                ),
-              ],
-              selected: {kind},
-              onSelectionChanged: (values) =>
-                  ref.read(recordKindProvider.notifier).state = values.first,
-              showSelectedIcon: false,
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ),
-          ),
-          const SizedBox(height: 4),
+          if (showLeave) const SizedBox(height: 4),
           Row(
             children: [
               IconButton(
@@ -590,7 +594,7 @@ class _RecordListPageState extends ConsumerState<RecordListPage> {
                       child: Text(
                         record.isFixedCalc
                             ? '${record.type} ¥${formatMoney(record.fixedWage)}/时'
-                            : '${record.type} ×${_rateText(record.rate)}',
+                            : '${record.type} ×${formatRate(record.rate)}',
                         style: TextStyle(fontSize: 12, color: color),
                       ),
                     ),
@@ -910,11 +914,6 @@ class _Summary {
       amount: amount,
     );
   }
-}
-
-String _rateText(double rate) {
-  final text = rate.toStringAsFixed(2);
-  return text.replaceFirst(RegExp(r'\.00$'), '');
 }
 
 /// 当前筛选结果的请假汇总

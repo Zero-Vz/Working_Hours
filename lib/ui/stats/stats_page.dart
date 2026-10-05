@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
 import '../../data/models/app_settings.dart';
+import '../../providers/income_items_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/stats_provider.dart';
 
@@ -16,7 +17,6 @@ class StatsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final now = DateTime.now();
     final byYear = ref.watch(statsByYearProvider);
     final year = ref.watch(statsYearProvider);
     final monthKey = ref.watch(statsMonthProvider);
@@ -34,21 +34,45 @@ class StatsPage extends ConsumerWidget {
           ? yearLeaveSummaryProvider(year)
           : monthLeaveSummaryProvider(monthKey),
     );
-    final series = ref.watch(
+    final income = ref.watch(
+      byYear
+          ? yearIncomeTotalsProvider(year)
+          : monthIncomeTotalsProvider(monthKey),
+    );
+    final amountSeries = ref.watch(
       byYear
           ? yearAmountSeriesProvider(year)
           : monthDailyAmountProvider(monthKey),
     );
+    final hoursSeries = ref.watch(
+      byYear
+          ? yearMonthlyHoursProvider(year)
+          : monthDailyHoursProvider(monthKey),
+    );
+    final incomeSeries = ref.watch(
+      byYear
+          ? yearIncomeNetSeriesProvider(year)
+          : monthIncomeNetSeriesProvider(monthKey),
+    );
+    final leaveSeries = ref.watch(
+      byYear
+          ? yearLeaveDeductSeriesProvider(year)
+          : monthLeaveDeductSeriesProvider(monthKey),
+    );
 
+    // 年度标签为 1月 ~ 12月；月度横轴为 1、2…，提示里补上「号」
     final labels = byYear
         ? <String>[for (var m = 1; m <= 12; m++) '$m月']
-        : <String>[for (var d = 1; d <= series.length; d++) '$d'];
+        : <String>[for (var d = 1; d <= amountSeries.length; d++) '$d'];
+    final tooltipLabels = byYear
+        ? labels
+        : <String>[for (var d = 1; d <= amountSeries.length; d++) '$d号'];
     final labelEvery = byYear ? 1 : 5;
-    final hasData = series.any((value) => value != 0);
     final emptyText = byYear ? '该年度暂无数据' : '该月暂无数据';
-    final chartTitle = byYear
-        ? '$year 年每月金额趋势'
-        : '${monthKey.month} 月每日金额趋势';
+    final periodName = byYear ? '$year 年' : '${monthKey.month} 月';
+
+    final hasLeaveData = leaveSeries.any((value) => value != 0);
+    final hasIncomeData = incomeSeries.any((value) => value != 0);
 
     return Scaffold(
       appBar: AppBar(title: const Text('统计')),
@@ -117,18 +141,6 @@ class StatsPage extends ConsumerWidget {
                     }
                   },
                 ),
-                IconButton(
-                  tooltip: byYear ? '回到今年' : '回到本月',
-                  icon: const Icon(Icons.today_outlined, size: 20),
-                  onPressed: () {
-                    if (byYear) {
-                      ref.read(statsYearProvider.notifier).state = now.year;
-                    } else {
-                      ref.read(statsMonthProvider.notifier).state =
-                          YearMonth.of(now);
-                    }
-                  },
-                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -154,18 +166,28 @@ class StatsPage extends ConsumerWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: _MetricCard(
-                    title: byYear ? '全年折算工时' : '月度折算工时',
-                    value: formatHours(
-                      byYear ? yearly.hours : monthly.hours,
-                    ),
-                    unit: '小时',
-                    icon: Icons.schedule_outlined,
-                    color: const Color(0xFF00897B),
-                    hint: byYear
-                        ? '原始 ${formatDuration(yearly.rawMinutes)}'
-                        : '原始 ${formatDuration(monthly.rawMinutes)}',
-                  ),
+                  child: settings.showIncomeItems
+                      ? _MetricCard(
+                          title: byYear ? '全年增扣金额' : '月度增扣金额',
+                          value: _signedMoney(income.net),
+                          unit: '元',
+                          icon: Icons.tune_outlined,
+                          color: const Color(0xFF00897B),
+                          hint: '增 +¥${formatMoney(income.extra)}'
+                              ' · 扣 -¥${formatMoney(income.deduct)}',
+                        )
+                      : _MetricCard(
+                          title: byYear ? '全年折算工时' : '月度折算工时',
+                          value: formatHours(
+                            byYear ? yearly.hours : monthly.hours,
+                          ),
+                          unit: '小时',
+                          icon: Icons.schedule_outlined,
+                          color: const Color(0xFF00897B),
+                          hint: byYear
+                              ? '原始 ${formatDuration(yearly.rawMinutes)}'
+                              : '原始 ${formatDuration(monthly.rawMinutes)}',
+                        ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -218,7 +240,7 @@ class StatsPage extends ConsumerWidget {
             const SizedBox(height: 16),
 
             // ---------------------------- 请假汇总
-            if (!leave.isEmpty) ...[
+            if (settings.showLeaveRecords && !leave.isEmpty) ...[
               _sectionCard(
                 theme,
                 title: byYear ? '全年请假汇总' : '当月请假汇总',
@@ -231,48 +253,82 @@ class StatsPage extends ConsumerWidget {
               const SizedBox(height: 16),
             ],
 
-            // ---------------------------- 金额趋势（折线 + 条形，同一份数据）
-            _sectionCard(
-              theme,
-              title: '$chartTitle · 折线',
+            // ---------------------------- 趋势折线图
+            _TrendCard(
+              theme: theme,
+              title: byYear ? '$periodName每月时长趋势' : '$periodName每日时长趋势',
               trailing: Text(
-                '合计 ¥${formatMoney(series.fold<double>(0, (a, b) => a + b))}',
+                '合计 ${formatHours(hoursSeries.fold<double>(0, (a, b) => a + b))} 小时',
                 style: theme.textTheme.bodySmall,
               ),
-              child: SizedBox(
-                height: 240,
-                child: hasData
-                    ? _LineChart(
-                        values: series,
-                        labels: labels,
-                        labelEvery: labelEvery,
-                        color: scheme.primary,
-                        scheme: scheme,
-                      )
-                    : _EmptyChart(theme: theme, text: emptyText),
-              ),
+              values: hoursSeries,
+              labels: labels,
+              tooltipLabels: tooltipLabels,
+              labelEvery: labelEvery,
+              color: scheme.primary,
+              tooltipFormat: (value) => '${formatHours(value)} 小时',
+              axisFormat: _axisTextHours,
+              emptyText: emptyText,
             ),
             const SizedBox(height: 16),
-            _sectionCard(
-              theme,
-              title: '$chartTitle · 条形',
+            _TrendCard(
+              theme: theme,
+              title: byYear ? '$periodName每月金额趋势' : '$periodName每日金额趋势',
               trailing: Text(
-                '共 ${byYear ? yearly.count : monthly.count} 条',
+                '合计 ¥${formatMoney(amountSeries.fold<double>(0, (a, b) => a + b))}',
                 style: theme.textTheme.bodySmall,
               ),
-              child: SizedBox(
-                height: 240,
-                child: hasData
-                    ? _BarChart(
-                        values: series,
-                        labels: labels,
-                        color: scheme.primary,
-                        labelEvery: labelEvery,
-                        scheme: scheme,
-                      )
-                    : _EmptyChart(theme: theme, text: emptyText),
-              ),
+              values: amountSeries,
+              labels: labels,
+              tooltipLabels: tooltipLabels,
+              labelEvery: labelEvery,
+              color: const Color(0xFFB26A00),
+              tooltipFormat: _moneyText,
+              axisFormat: _axisText,
+              emptyText: emptyText,
             ),
+            if (settings.showIncomeItems && hasIncomeData) ...[
+              const SizedBox(height: 16),
+              _TrendCard(
+                theme: theme,
+                title: byYear
+                    ? '$periodName每月增扣金额趋势'
+                    : '$periodName每日增扣金额趋势',
+                trailing: Text(
+                  '合计 ${_signedMoney(incomeSeries.fold<double>(0, (a, b) => a + b))}',
+                  style: theme.textTheme.bodySmall,
+                ),
+                values: incomeSeries,
+                labels: labels,
+                tooltipLabels: tooltipLabels,
+                labelEvery: labelEvery,
+                color: const Color(0xFF00897B),
+                tooltipFormat: _signedMoney,
+                axisFormat: _axisText,
+                emptyText: emptyText,
+              ),
+            ],
+            if (settings.showLeaveRecords && hasLeaveData) ...[
+              const SizedBox(height: 16),
+              _TrendCard(
+                theme: theme,
+                title: byYear
+                    ? '$periodName每月请假扣款趋势'
+                    : '$periodName每日请假扣款趋势',
+                trailing: Text(
+                  '合计 -¥${formatMoney(leaveSeries.fold<double>(0, (a, b) => a + b))}',
+                  style: theme.textTheme.bodySmall,
+                ),
+                values: leaveSeries,
+                labels: labels,
+                tooltipLabels: tooltipLabels,
+                labelEvery: labelEvery,
+                color: const Color(0xFFC62828),
+                tooltipFormat: _moneyText,
+                axisFormat: _axisText,
+                emptyText: '该期间无请假扣款',
+              ),
+            ],
           ],
         ),
       ),
@@ -528,11 +584,110 @@ class StatsPage extends ConsumerWidget {
   }
 }
 
-/// 图表提示文案：0 直接显示 0，其余保留两位小数
-String _tooltipText(List<String> labels, int index, double value) {
+/// 图表提示文案：标签 + 数值，数值为 0 时直接显示 0
+String _tooltipText(
+  List<String> labels,
+  int index,
+  double value,
+  String Function(double) format,
+) {
   final label = (index >= 0 && index < labels.length) ? labels[index] : '';
-  final text = '¥${formatMoney(value)}';
+  final text = format(value);
   return label.isEmpty ? text : '$label\n$text';
+}
+
+/// 金额文本：0 → 0，正数 → ¥1.00，负数 → -¥1.00
+String _moneyText(double value) {
+  if (value == 0) return '0';
+  return value < 0 ? '-¥${formatMoney(-value)}' : '¥${formatMoney(value)}';
+}
+
+/// 带符号金额文本：0 → 0，正数 → +¥1.00，负数 → -¥1.00
+String _signedMoney(double value) {
+  if (value == 0) return '0';
+  return value < 0 ? '-¥${formatMoney(-value)}' : '+¥${formatMoney(value)}';
+}
+
+/// 趋势折线图卡片（时长 / 金额 / 增扣项 / 请假扣款共用）
+class _TrendCard extends StatelessWidget {
+  const _TrendCard({
+    required this.theme,
+    required this.title,
+    required this.trailing,
+    required this.values,
+    required this.labels,
+    required this.tooltipLabels,
+    required this.labelEvery,
+    required this.color,
+    required this.tooltipFormat,
+    required this.axisFormat,
+    required this.emptyText,
+  });
+
+  final ThemeData theme;
+  final String title;
+  final Widget trailing;
+  final List<double> values;
+  final List<String> labels;
+
+  /// 长按时气泡里的标签（月度为 15号）
+  final List<String> tooltipLabels;
+
+  final int labelEvery;
+  final Color color;
+  final String Function(double) tooltipFormat;
+  final String Function(double) axisFormat;
+  final String emptyText;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = theme.colorScheme;
+    final hasData = values.any((value) => value != 0);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant.withOpacity(0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              trailing,
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 240,
+            child: hasData
+                ? _LineChart(
+                    values: values,
+                    labels: labels,
+                    tooltipLabels: tooltipLabels,
+                    labelEvery: labelEvery,
+                    color: color,
+                    scheme: scheme,
+                    tooltipFormat: tooltipFormat,
+                    axisFormat: axisFormat,
+                  )
+                : _EmptyChart(theme: theme, text: emptyText),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// 指标卡：标题 / 数值 / 说明三段式，三张卡片高度保持一致
@@ -651,21 +806,34 @@ class _EmptyChart extends StatelessWidget {
 String _axisText(double value) =>
     value.abs() >= 10 ? value.toStringAsFixed(0) : formatMoney(value);
 
-/// 金额趋势折线图
+/// 左轴刻度：小时，0 显示为 0
+String _axisTextHours(double value) => value == 0
+    ? '0'
+    : value.abs() >= 10
+        ? value.toStringAsFixed(0)
+        : formatHours(value);
+
+/// 趋势折线图
 class _LineChart extends StatelessWidget {
   const _LineChart({
     required this.values,
     required this.labels,
+    required this.tooltipLabels,
     required this.labelEvery,
     required this.color,
     required this.scheme,
+    required this.tooltipFormat,
+    required this.axisFormat,
   });
 
   final List<double> values;
   final List<String> labels;
+  final List<String> tooltipLabels;
   final int labelEvery;
   final Color color;
   final ColorScheme scheme;
+  final String Function(double) tooltipFormat;
+  final String Function(double) axisFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -705,7 +873,7 @@ class _LineChart extends StatelessWidget {
               getTitlesWidget: (value, meta) => Padding(
                 padding: const EdgeInsets.only(right: 6),
                 child: Text(
-                  _axisText(value),
+                  axisFormat(value),
                   style: const TextStyle(fontSize: 10),
                   textAlign: TextAlign.right,
                 ),
@@ -750,7 +918,12 @@ class _LineChart extends StatelessWidget {
             getTooltipColor: (_) => scheme.surface,
             getTooltipItems: (spots) => spots.map((spot) {
               return LineTooltipItem(
-                _tooltipText(labels, spot.x.toInt() - 1, spot.y),
+                _tooltipText(
+                  tooltipLabels,
+                  spot.x.toInt() - 1,
+                  spot.y,
+                  tooltipFormat,
+                ),
                 TextStyle(
                   color: scheme.onSurface,
                   fontWeight: FontWeight.w700,
@@ -780,138 +953,6 @@ class _LineChart extends StatelessWidget {
         ],
       ),
       duration: const Duration(milliseconds: 350),
-    );
-  }
-}
-
-/// 金额趋势条形图（与折线图同一份数据）
-class _BarChart extends StatelessWidget {
-  const _BarChart({
-    required this.values,
-    required this.labels,
-    required this.color,
-    required this.labelEvery,
-    required this.scheme,
-  });
-
-  final List<double> values;
-  final List<String> labels;
-  final Color color;
-
-  /// 标签显示间隔（1 = 全部显示）
-  final int labelEvery;
-
-  final ColorScheme scheme;
-
-  @override
-  Widget build(BuildContext context) {
-    final maxValue = values.fold<double>(0, (a, b) => a > b ? a : b);
-    final minValue = values.fold<double>(0, (a, b) => a < b ? a : b);
-    final maxY = maxValue > 0 ? maxValue * 1.3 : 1.0;
-    final minY = minValue < 0 ? minValue * 1.3 : 0.0;
-    final interval = (maxY - minY) / 4;
-    final dense = values.length > 28;
-
-    return BarChart(
-      BarChartData(
-        minY: minY,
-        maxY: maxY,
-        alignment: BarChartAlignment.spaceAround,
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: interval,
-          getDrawingHorizontalLine: (value) => FlLine(
-            color: scheme.outlineVariant.withOpacity(0.5),
-            strokeWidth: 1,
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(
-          enabled: true,
-          touchTooltipData: BarTouchTooltipData(
-            tooltipRoundedRadius: 8,
-            tooltipPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 6,
-            ),
-            tooltipBorder: BorderSide(color: scheme.outlineVariant),
-            getTooltipColor: (_) => scheme.surface,
-            getTooltipItem: (group, groupIndex, rod, rodIndex) {
-              return BarTooltipItem(
-                _tooltipText(labels, groupIndex, rod.toY),
-                TextStyle(
-                  color: scheme.onSurface,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  height: 1.3,
-                ),
-              );
-            },
-          ),
-        ),
-        titlesData: FlTitlesData(
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-              interval: interval,
-              getTitlesWidget: (value, meta) => Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: Text(
-                  _axisText(value),
-                  style: const TextStyle(fontSize: 10),
-                  textAlign: TextAlign.right,
-                ),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: dense ? 24 : 26,
-              interval: 1,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < 1 || index > values.length) {
-                  return const SizedBox.shrink();
-                }
-                final show = labelEvery <= 1 ||
-                    index == 1 ||
-                    index % labelEvery == 0;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    show ? labels[index - 1] : '',
-                    style: const TextStyle(fontSize: 10),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-        barGroups: [
-          for (var i = 0; i < values.length; i++)
-            BarChartGroupData(
-              x: i + 1,
-              barRods: [
-                BarChartRodData(
-                  toY: values[i],
-                  width: dense ? 6 : 12,
-                  color: values[i] != 0 ? color : scheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ],
-            ),
-        ],
-      ),
-      swapAnimationDuration: const Duration(milliseconds: 350),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:working_hours/core/constants.dart';
 import 'package:working_hours/core/utils/time_utils.dart';
+import 'package:working_hours/data/csv/income_csv_service.dart';
 import 'package:working_hours/data/csv/leave_csv_service.dart';
 import 'package:working_hours/data/models/income_item.dart';
 import 'package:working_hours/data/models/leave_record.dart';
@@ -9,19 +10,32 @@ void main() {
   final now = DateTime(2026, 10, 5, 9, 30);
 
   group('请假记录模型', () {
-    test('带薪请假不扣工资', () {
+    test('带薪请假默认不扣工资，也可填写部分扣款', () {
       final paid = LeaveRecord(
         id: 1,
         date: DateTime(2026, 10, 5),
         days: 1,
         type: LeaveTypes.paid,
         reason: '事假',
-        deductAmount: 500,
+        deductAmount: 0,
         createdAt: now,
         updatedAt: now,
       );
       expect(paid.isPaid, isTrue);
       expect(paid.actualDeduct, 0);
+
+      // 带薪假不一定是全日薪，可按需扣部分
+      final partial = LeaveRecord(
+        id: 3,
+        date: DateTime(2026, 10, 7),
+        days: 1,
+        type: LeaveTypes.paid,
+        reason: '事假',
+        deductAmount: 200,
+        createdAt: now,
+        updatedAt: now,
+      );
+      expect(partial.actualDeduct, 200);
       expect(LeaveTypes.labelOf(paid.type), '带薪');
     });
 
@@ -148,6 +162,41 @@ void main() {
       expect(updated.amount, 1200);
       expect(updated.id, base.id);
       expect(IncomeKinds.labelOf(updated.kind), '扣项');
+    });
+    test('工资项可按月单独设置金额，未设置的月份用默认值', () {
+      final item = IncomeItem(
+        id: 9,
+        name: '绩效',
+        kind: IncomeKinds.income,
+        amount: 500,
+        monthlyOverrides: const {'2026-10': 800, '2026-11': 0},
+        createdAt: now,
+        updatedAt: now,
+      );
+      expect(item.amountForYearMonth(2026, 9), 500);
+      expect(item.amountFor(const YearMonth(2026, 10)), 800);
+      expect(item.signedAmountForYearMonth(2026, 11), 0);
+      expect(item.hasOverride(2026, 10), isTrue);
+      expect(item.hasOverride(2026, 12), isFalse);
+    });
+
+    test('工资项 CSV 往返保留按月金额', () {
+      final items = [
+        IncomeItem(
+          id: 1,
+          name: '绩效',
+          kind: IncomeKinds.income,
+          amount: 500,
+          monthlyOverrides: const {'2026-10': 800},
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ];
+      final parsed = IncomeCsvService.parse(
+        IncomeCsvService.exportToString(items),
+      );
+      expect(parsed.single.amountForYearMonth(2026, 10), 800);
+      expect(parsed.single.amountForYearMonth(2026, 11), 500);
     });
   });
 }

@@ -149,6 +149,31 @@ void main() {
       expect(WorkCalc.hoursOf(record, settings), closeTo(4.5, 0.0001));
       expect(WorkCalc.amountOf(record, settings), 562.50);
     });
+
+    test('按月调薪：该月时薪按当月月薪反推', () {
+      const settings = AppSettings(
+        salaryMode: 'monthly',
+        monthlySalary: 21750, // 时薪 125
+        salaryOverrides: {'2026-10': 10875.0},
+      );
+      // 未单独设置的月份仍用默认月薪
+      expect(settings.salaryFor(DateTime(2026, 9, 5)), 21750);
+      expect(settings.salaryFor(DateTime(2026, 10, 5)), 10875);
+      expect(
+        settings.effectiveHourlyWageFor(DateTime(2026, 9, 5)),
+        closeTo(125, 0.0001),
+      );
+      expect(
+        settings.effectiveHourlyWageFor(DateTime(2026, 10, 5)),
+        closeTo(10875 / 21.75 / 8, 0.0001),
+      );
+      // 按时薪模式时按月调薪不影响时薪
+      const hourly = AppSettings(
+        hourlyWage: 66,
+        salaryOverrides: {'2026-10': 10875.0},
+      );
+      expect(hourly.effectiveHourlyWageFor(DateTime(2026, 10, 5)), 66);
+    });
   });
 
   group('固定加班时薪计算', () {

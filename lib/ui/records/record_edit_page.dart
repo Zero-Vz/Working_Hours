@@ -27,8 +27,6 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _projectController = TextEditingController();
   final TextEditingController _noteController = TextEditingController();
-  final TextEditingController _rateController = TextEditingController();
-  final TextEditingController _fixedWageController = TextEditingController();
 
   late DateTime _date;
   late String _start;
@@ -62,8 +60,8 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     final settings = ref.read(settingsProvider);
 
     _date = record?.date ?? dateOnly(DateTime.now());
-    _start = record?.startTime ?? '18:00';
-    _end = record?.endTime ?? '21:00';
+    _start = record?.startTime ?? _defaultStart(settings);
+    _end = record?.endTime ?? _defaultEnd(settings, _start);
     _type = record?.type ?? OvertimeTypes.weekday;
     _rate = record?.rate ?? settings.defaultRateOf(_type);
     _calcMode = CalcModes.normalize(record?.calcMode);
@@ -72,6 +70,11 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     _byRange = true;
     _fixedDuration =
         record?.durationMinutes ?? calcDurationMinutes(_start, _end);
+    if (record == null) {
+      // 新增：带出上一次填写的固定时长
+      final remembered = settings.lastFixedDuration;
+      if (remembered > 0 && remembered < 1440) _fixedDuration = remembered;
+    }
     if (_fixedDuration <= 0 || _fixedDuration >= 1440) _fixedDuration = 180;
     _breakOverride = record?.breakMinutes ?? kFollowSettingsBreak;
     if (record != null) {
@@ -85,8 +88,6 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     _settled = record?.isSettled ?? false;
     _projectController.text = record?.project ?? settings.defaultProject;
     _noteController.text = record?.note ?? '';
-    _rateController.text = _rateText(_rate);
-    _fixedWageController.text = formatMoney(_fixedWage);
 
     if (record == null) {
       // 新增：按日历自动选择类型与倍率
@@ -98,9 +99,22 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
   void dispose() {
     _projectController.dispose();
     _noteController.dispose();
-    _rateController.dispose();
-    _fixedWageController.dispose();
     super.dispose();
+  }
+
+  /// 新增记录默认开始时间（记住上一次填写的值）
+  String _defaultStart(AppSettings settings) {
+    final value = settings.lastStartTime;
+    return parseTimeToMinutes(value) == null ? '18:00' : value;
+  }
+
+  /// 新增记录默认结束时间：与开始时间相同或非法时回退，避免一进来就报错
+  String _defaultEnd(AppSettings settings, String start) {
+    final value = settings.lastEndTime;
+    if (parseTimeToMinutes(value) == null || value == start) {
+      return minutesToTime((parseTimeToMinutes(start) ?? 0) + 180);
+    }
+    return value;
   }
 
   // ---------------------------------------------------------------- 计算预览
@@ -167,7 +181,6 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     final type = CalendarRules.autoTypeFor(date);
     _type = type;
     _rate = settings.defaultRateOf(type);
-    _rateController.text = _rateText(_rate);
     if (type != OvertimeTypes.custom) _calcMode = CalcModes.rate;
     _autoFromCalendar = true;
   }
@@ -230,9 +243,147 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     setState(() {
       _type = type;
       _rate = settings.defaultRateOf(type);
-      _rateController.text = _rateText(_rate);
       if (type != OvertimeTypes.custom) _calcMode = CalcModes.rate;
       _autoFromCalendar = CalendarRules.autoTypeFor(_date) == type;
+    });
+  }
+
+  /// 自定义类型的参数弹窗（倍率 / 固定时薪），与其余类型共用同一个信息框
+  Future<void> _pickCustomParams() async {
+    var mode = _calcMode;
+    final rateController = TextEditingController(text: formatRate(_rate));
+    final wageController = TextEditingController(text: formatMoney(_fixedWage));
+    String? error;
+
+    // 只把结果带回页面，由页面统一 setState（弹窗内不直接改页面状态）
+    final params = await showDialog<(String, double)>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            if (mode == CalcModes.rate) {
+              final parsed = double.tryParse(rateController.text.trim());
+              if (parsed == null || parsed <= 0) {
+                setDialogState(() => error = '请输入大于 0 的倍率');
+                return;
+              }
+              Navigator.of(dialogContext).pop((CalcModes.rate, parsed));
+            } else {
+              final parsed = double.tryParse(wageController.text.trim());
+              if (parsed == null || parsed <= 0) {
+                setDialogState(() => error = '请输入大于 0 的固定时薪');
+                return;
+              }
+              Navigator.of(dialogContext).pop((CalcModes.fixed, parsed));
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('自定义参数'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: CalcModes.rate,
+                          label: Text('按倍率'),
+                        ),
+                        ButtonSegment(
+                          value: CalcModes.fixed,
+                          label: Text('按固定时薪'),
+                        ),
+                      ],
+                      selected: {mode},
+                      onSelectionChanged: (values) => setDialogState(() {
+                        mode = values.first;
+                        error = null;
+                      }),
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (mode == CalcModes.rate)
+                    TextField(
+                      controller: rateController,
+                      autofocus: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: '倍率',
+                        hintText: '例如 1.50',
+                        errorText: error,
+                        isDense: true,
+                        prefixIcon: const Icon(Icons.percent),
+                      ),
+                      onChanged: (_) => setDialogState(() => error = null),
+                      onSubmitted: (_) => submit(),
+                    )
+                  else
+                    TextField(
+                      controller: wageController,
+                      autofocus: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: '固定加班时薪',
+                        hintText: '例如 60',
+                        errorText: error,
+                        isDense: true,
+                        prefixIcon:
+                            const Icon(Icons.attach_money_outlined),
+                      ),
+                      onChanged: (_) => setDialogState(() => error = null),
+                      onSubmitted: (_) => submit(),
+                    ),
+                  const SizedBox(height: 10),
+                  Text(
+                    mode == CalcModes.rate
+                        ? '金额 = 有效时长 × 倍率 × 时薪'
+                        : '金额 = 有效时长 × 固定加班时薪，不再乘倍率',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('取消'),
+              ),
+              TextButton(onPressed: submit, child: const Text('确定')),
+            ],
+          );
+        },
+      ),
+    );
+    // 控制器随弹窗闭包回收：弹窗退出动画结束前销毁它会触发框架断言
+
+    if (params == null || !mounted) return;
+    setState(() {
+      _calcMode = params.$1;
+      if (params.$1 == CalcModes.rate) {
+        _rate = params.$2;
+      } else {
+        _fixedWage = params.$2;
+      }
     });
   }
 
@@ -368,10 +519,8 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
           );
         },
       ),
-    ).whenComplete(() {
-      hoursController.dispose();
-      minutesController.dispose();
-    });
+    );
+    // 控制器随弹窗闭包回收：弹窗退出动画结束前销毁它会触发框架断言
 
     if (picked == null) return;
     setState(() {
@@ -467,7 +616,8 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
           );
         },
       ),
-    ).whenComplete(controller.dispose);
+    );
+    // 控制器随弹窗闭包回收：弹窗退出动画结束前销毁它会触发框架断言
 
     if (picked == null) return;
     setState(() {
@@ -495,6 +645,10 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     }
     if (!_byRange && (_fixedDuration <= 0 || _fixedDuration >= 1440)) {
       _showMessage('请选择有效的加班时长');
+      return;
+    }
+    if (_calcMode == CalcModes.rate && _rate <= 0) {
+      _showMessage('请输入大于 0 的倍率');
       return;
     }
     if (_calcMode == CalcModes.fixed && _fixedWage <= 0) {
@@ -529,6 +683,12 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
     record.amount = WorkCalc.amountOf(record, settings);
 
     await ref.read(recordsProvider.notifier).upsert(record);
+    // 记住本次的起止时间与固定时长，下次新增直接带出
+    ref.read(settingsProvider.notifier).rememberEntry(
+          start: _start,
+          end: _end,
+          fixedDuration: _fixedDuration,
+        );
     if (!mounted) return;
     Navigator.of(context).pop();
     messenger
@@ -728,148 +888,7 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
               ],
             ),
             const SizedBox(height: 8),
-            if (_type != OvertimeTypes.custom)
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: OvertimeTypes.colorOf(_type).withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.percent, size: 15, color: scheme.onSurfaceVariant),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        '倍率 ×${_rateText(_rate)}　$_type默认',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ),
-                    Text(
-                      '倍率在设置中修改',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: scheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: OvertimeTypes.colorOf(OvertimeTypes.custom)
-                      .withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: CalcModes.rate,
-                            label: Text('按倍率'),
-                          ),
-                          ButtonSegment(
-                            value: CalcModes.fixed,
-                            label: Text('按固定时薪'),
-                          ),
-                        ],
-                        selected: {_calcMode},
-                        onSelectionChanged: (values) => setState(
-                          () => _calcMode = values.first,
-                        ),
-                        showSelectedIcon: false,
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    if (_calcMode == CalcModes.rate)
-                      TextFormField(
-                        controller: _rateController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                        ],
-                        decoration: const InputDecoration(
-                          labelText: '倍率',
-                          hintText: '例如 1.5',
-                          isDense: true,
-                          prefixIcon: Icon(Icons.percent),
-                        ),
-                        validator: (value) {
-                          if (_calcMode != CalcModes.rate) return null;
-                          final parsed =
-                              double.tryParse((value ?? '').trim());
-                          if (parsed == null || parsed <= 0) {
-                            return '请输入大于 0 的倍率';
-                          }
-                          return null;
-                        },
-                        onChanged: (value) {
-                          final parsed = double.tryParse(value.trim());
-                          if (parsed != null && parsed > 0) {
-                            setState(() => _rate = parsed);
-                          }
-                        },
-                      )
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TextFormField(
-                            controller: _fixedWageController,
-                            keyboardType:
-                                const TextInputType.numberWithOptions(
-                                    decimal: true),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                  RegExp(r'[0-9.]')),
-                            ],
-                            decoration: const InputDecoration(
-                              labelText: '固定加班时薪',
-                              hintText: '例如 60',
-                              isDense: true,
-                              prefixIcon: Icon(Icons.attach_money_outlined),
-                            ),
-                            validator: (value) {
-                              if (_calcMode != CalcModes.fixed) return null;
-                              final parsed =
-                                  double.tryParse((value ?? '').trim());
-                              if (parsed == null || parsed <= 0) {
-                                return '请输入大于 0 的固定时薪';
-                              }
-                              return null;
-                            },
-                            onChanged: (value) {
-                              final parsed = double.tryParse(value.trim());
-                              if (parsed != null && parsed > 0) {
-                                setState(() => _fixedWage = parsed);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '金额 = 有效时长 × 固定加班时薪，不再乘倍率',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
-            ],
+            _rateBox(theme, scheme),
             if (_autoFromCalendar && _type != OvertimeTypes.custom) ...[
               const SizedBox(height: 8),
               Row(
@@ -882,7 +901,7 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      '已按日历自动选定：${CalendarRules.describe(_date)}，倍率 ×${_rateText(_rate)}',
+                      '已按日历自动选定：${CalendarRules.describe(_date)}，倍率 ×${formatRate(_rate)}',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -1022,6 +1041,63 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
       showCheckmark: false,
       visualDensity: VisualDensity.compact,
       onSelected: (_) => _selectType(type),
+    );
+  }
+
+  /// 加班类型下方的信息框：四个类型外观完全一致，
+  /// 自定义类型点击后弹窗修改倍率 / 固定时薪
+  Widget _rateBox(ThemeData theme, ColorScheme scheme) {
+    final custom = _type == OvertimeTypes.custom;
+    final color = OvertimeTypes.colorOf(_type);
+    final detail = custom && _calcMode == CalcModes.fixed
+        ? '固定时薪 ¥${formatMoney(_fixedWage)}/小时'
+        : '倍率 ×${formatRate(_rate)}';
+    final text = theme.textTheme;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: custom ? _pickCustomParams : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.percent, size: 15, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '$detail　$_type${custom ? '' : '默认'}',
+                  style: text.bodySmall,
+                ),
+              ),
+              if (custom)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '点击修改',
+                      style: text.labelSmall?.copyWith(
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(Icons.edit_outlined, size: 16, color: scheme.primary),
+                  ],
+                )
+              else
+                Text(
+                  '倍率在设置中修改',
+                  style: text.labelSmall?.copyWith(color: scheme.primary),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1180,9 +1256,4 @@ class _RecordEditPageState extends ConsumerState<RecordEditPage> {
       ),
     );
   }
-}
-
-String _rateText(double rate) {
-  final text = rate.toStringAsFixed(2);
-  return text.replaceFirst(RegExp(r'\.00$'), '');
 }

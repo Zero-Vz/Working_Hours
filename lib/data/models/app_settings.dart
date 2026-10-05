@@ -3,6 +3,7 @@ import 'package:hive/hive.dart';
 
 import '../../core/constants.dart';
 import '../../core/utils/calc.dart';
+import '../../core/utils/time_utils.dart';
 
 /// 应用设置（存放在 settings Box 中，全部为本地键值）
 class AppSettings {
@@ -23,6 +24,12 @@ class AppSettings {
     this.includeSalaryInTotal = false,
     this.spreadToWorkdays = false,
     this.showTotalSalary = false,
+    this.showLeaveRecords = true,
+    this.showIncomeItems = true,
+    this.lastStartTime = '18:00',
+    this.lastEndTime = '21:00',
+    this.lastFixedDuration = 180,
+    this.salaryOverrides = const <String, double>{},
   });
 
   /// 时薪（元 / 小时，salaryMode 为 hourly 时生效）
@@ -68,6 +75,22 @@ class AppSettings {
   /// true = 总工资卡 + 总金额趋势；false = 仅加班记录趋势
   final bool showTotalSalary;
 
+  /// 是否显示请假记录（记录页分段、统计页请假汇总与请假趋势）
+  final bool showLeaveRecords;
+
+  /// 是否显示增扣项（统计页增扣金额卡与增扣趋势）
+  final bool showIncomeItems;
+
+  /// 新增记录默认开始 / 结束时间（记住上一次保存的值）
+  final String lastStartTime;
+  final String lastEndTime;
+
+  /// 新增记录默认固定时长（分钟）
+  final int lastFixedDuration;
+
+  /// 按月单独设置的月薪（键为年月，如 2026-10；缺省月份用 [monthlySalary]）
+  final Map<String, double> salaryOverrides;
+
   ThemeMode get theme {
     switch (themeMode) {
       case 'light':
@@ -84,6 +107,23 @@ class AppSettings {
   double get effectiveHourlyWage {
     if (salaryMode == SalaryModes.monthly && monthlySalary > 0) {
       return WorkCalc.hourlyFromMonthly(monthlySalary);
+    }
+    return hourlyWage;
+  }
+
+  /// 某年月生效的月薪（有按月调整时取调整值，否则取默认月薪）
+  double salaryForYearMonth(int year, int month) =>
+      salaryOverrides[yearMonthKey(year, month)] ?? monthlySalary;
+
+  /// 某日期所在月份生效的月薪
+  double salaryFor(DateTime date) => salaryForYearMonth(date.year, date.month);
+
+  /// 某日期所在月份生效的时薪（按月薪反推时会考虑该月的月薪调整）
+  double effectiveHourlyWageFor(DateTime date) {
+    if (salaryMode == SalaryModes.monthly) {
+      final salary = salaryFor(date);
+      if (salary > 0) return WorkCalc.hourlyFromMonthly(salary);
+      return hourlyWage;
     }
     return hourlyWage;
   }
@@ -122,6 +162,12 @@ class AppSettings {
     bool? includeSalaryInTotal,
     bool? spreadToWorkdays,
     bool? showTotalSalary,
+    bool? showLeaveRecords,
+    bool? showIncomeItems,
+    String? lastStartTime,
+    String? lastEndTime,
+    int? lastFixedDuration,
+    Map<String, double>? salaryOverrides,
   }) {
     return AppSettings(
       hourlyWage: hourlyWage ?? this.hourlyWage,
@@ -140,6 +186,12 @@ class AppSettings {
       includeSalaryInTotal: includeSalaryInTotal ?? this.includeSalaryInTotal,
       spreadToWorkdays: spreadToWorkdays ?? this.spreadToWorkdays,
       showTotalSalary: showTotalSalary ?? this.showTotalSalary,
+      showLeaveRecords: showLeaveRecords ?? this.showLeaveRecords,
+      showIncomeItems: showIncomeItems ?? this.showIncomeItems,
+      lastStartTime: lastStartTime ?? this.lastStartTime,
+      lastEndTime: lastEndTime ?? this.lastEndTime,
+      lastFixedDuration: lastFixedDuration ?? this.lastFixedDuration,
+      salaryOverrides: salaryOverrides ?? this.salaryOverrides,
     );
   }
 
@@ -151,6 +203,17 @@ class AppSettings {
         (box.get(key, defaultValue: fallback) as num?)?.toInt() ?? fallback;
     bool flag(String key, {bool fallback = false}) =>
         box.get(key, defaultValue: fallback) as bool? ?? fallback;
+    String text(String key, String fallback) =>
+        box.get(key, defaultValue: fallback) as String? ?? fallback;
+
+    final rawOverrides = box.get('salaryOverrides');
+    final overrides = <String, double>{};
+    if (rawOverrides is Map) {
+      rawOverrides.forEach((key, value) {
+        final amount = (value as num?)?.toDouble();
+        if (key is String && amount != null) overrides[key] = amount;
+      });
+    }
 
     return AppSettings(
       hourlyWage: number('hourlyWage', 0),
@@ -171,11 +234,17 @@ class AppSettings {
       includeSalaryInTotal: flag('includeSalaryInTotal'),
       spreadToWorkdays: flag('spreadToWorkdays'),
       showTotalSalary: flag('showTotalSalary'),
+      showLeaveRecords: flag('showLeaveRecords', fallback: true),
+      showIncomeItems: flag('showIncomeItems', fallback: true),
+      lastStartTime: text('lastStartTime', '18:00'),
+      lastEndTime: text('lastEndTime', '21:00'),
+      lastFixedDuration: integer('lastFixedDuration', 180),
+      salaryOverrides: overrides,
     );
   }
 
-  /// 写入本地 Box
-  Future<void> write(Box box) => box.putAll(<String, dynamic>{
+  /// 导出为键值（键与 Box 一致，供全量备份使用）
+  Map<String, dynamic> toMap() => <String, dynamic>{
         'hourlyWage': hourlyWage,
         'salaryMode': salaryMode,
         'monthlySalary': monthlySalary,
@@ -192,5 +261,14 @@ class AppSettings {
         'includeSalaryInTotal': includeSalaryInTotal,
         'spreadToWorkdays': spreadToWorkdays,
         'showTotalSalary': showTotalSalary,
-      });
+        'showLeaveRecords': showLeaveRecords,
+        'showIncomeItems': showIncomeItems,
+        'lastStartTime': lastStartTime,
+        'lastEndTime': lastEndTime,
+        'lastFixedDuration': lastFixedDuration,
+        'salaryOverrides': salaryOverrides,
+      };
+
+  /// 写入本地 Box
+  Future<void> write(Box box) => box.putAll(toMap());
 }

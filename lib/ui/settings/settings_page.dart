@@ -8,6 +8,7 @@ import '../../providers/settings_provider.dart';
 import 'calc_settings_page.dart';
 import 'data_settings_page.dart';
 import 'income_items_page.dart';
+import 'rate_settings_page.dart';
 import 'salary_settings_page.dart';
 import 'settings_common.dart';
 import 'stats_settings_page.dart';
@@ -60,7 +61,7 @@ class SettingsPage extends ConsumerWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const SalarySettingsPage(),
+                    builder: (_) => const RateSettingsPage(),
                   ),
                 ),
               ),

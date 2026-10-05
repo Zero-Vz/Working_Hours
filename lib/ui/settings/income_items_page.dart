@@ -31,6 +31,10 @@ class _IncomeItemsPageState extends ConsumerState<IncomeItemsPage> {
     var kind = existing?.kind ?? IncomeKinds.income;
     var amount = existing?.amount ?? 0.0;
     var active = existing?.active ?? true;
+    final overrides = Map<String, double>.from(
+      existing?.monthlyOverrides ?? const <String, double>{},
+    );
+    var overrideYear = DateTime.now().year;
 
     final nameController = TextEditingController(text: name);
     final amountController = TextEditingController(
@@ -148,6 +152,91 @@ class _IncomeItemsPageState extends ConsumerState<IncomeItemsPage> {
                         ),
                   ),
                   if (existing != null) ...[
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    const SizedBox(height: 10),
+                    Text(
+                      '按月单独设置（未设置的月份使用默认金额）',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: '上一年',
+                          icon: const Icon(Icons.chevron_left, size: 20),
+                          onPressed: () =>
+                              setDialogState(() => overrideYear--),
+                        ),
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              '$overrideYear 年',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '下一年',
+                          icon: const Icon(Icons.chevron_right, size: 20),
+                          onPressed: () =>
+                              setDialogState(() => overrideYear++),
+                        ),
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (var month = 1; month <= 12; month++)
+                          ActionChip(
+                            avatar: overrides.containsKey(
+                              yearMonthKey(overrideYear, month),
+                            )
+                                ? const Icon(Icons.edit_outlined, size: 14)
+                                : null,
+                            label: Text(
+                              overrides.containsKey(
+                                yearMonthKey(overrideYear, month),
+                              )
+                                  ? '$month月 '
+                                      '¥${formatMoney(overrides[yearMonthKey(overrideYear, month)]!)}'
+                                  : '$month月 默认',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            onPressed: () async {
+                              final key =
+                                  yearMonthKey(overrideYear, month);
+                              final value = await promptMonthAmount(
+                                context,
+                                title: '$overrideYear 年 $month 月金额',
+                                label: '金额（元）',
+                                initialValue: formatMoney(
+                                  overrides[key] ?? amount,
+                                ),
+                                min: 0,
+                                max: 10000000,
+                              );
+                              if (value == null) return;
+                              setDialogState(() {
+                                if (value < 0) {
+                                  overrides.remove(key);
+                                } else {
+                                  overrides[key] = value;
+                                }
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
+                  if (existing != null) ...[
                     const SizedBox(height: 4),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
@@ -176,9 +265,7 @@ class _IncomeItemsPageState extends ConsumerState<IncomeItemsPage> {
         },
       ),
     );
-
-    nameController.dispose();
-    amountController.dispose();
+    // 控制器随弹窗闭包回收：弹窗退出动画结束前销毁它会触发框架断言
     if (saved != true) return;
 
     final now = DateTime.now();
@@ -188,6 +275,7 @@ class _IncomeItemsPageState extends ConsumerState<IncomeItemsPage> {
       kind: kind,
       amount: amount,
       active: active,
+      monthlyOverrides: overrides,
     );
     await ref.read(incomeItemsProvider.notifier).upsert(item);
     _toast(existing == null ? '已新增工资项「$name」' : '已更新「$name」');
@@ -311,8 +399,10 @@ class _IncomeItemsPageState extends ConsumerState<IncomeItemsPage> {
           settingsHeader(context, '说明'),
           _emptyCard(
             context,
-            '工资项按「每月固定金额」参与统计：开启「统计显示整月总工资」后，'
-            '增项加、扣项减，计入整月总工资与月度 / 年度金额趋势。',
+            '工资项默认按「每月固定金额」参与统计，也可在编辑时按月单独设置'
+            '（调薪、浮动绩效的月份），未设置的月份仍使用默认金额。\n'
+            '开启「统计显示整月总工资」后，增项加、扣项减，'
+            '计入整月总工资与月度 / 年度金额趋势。',
           ),
         ],
       ),
@@ -340,7 +430,9 @@ class _IncomeItemsPageState extends ConsumerState<IncomeItemsPage> {
       ),
       subtitle: Text(
         item.active
-            ? '${IncomeKinds.labelOf(item.kind)} · ¥${formatMoney(item.amount)} / 月'
+            ? '${IncomeKinds.labelOf(item.kind)} · '
+                '¥${formatMoney(item.amount)} / 月'
+                '${item.monthlyOverrides.isEmpty ? '' : ' · 按月调整 ${item.monthlyOverrides.length} 个月'}'
             : '已停用（不计入统计）',
         style: TextStyle(
           fontSize: 12,

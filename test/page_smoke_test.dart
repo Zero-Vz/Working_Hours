@@ -190,14 +190,14 @@ void main() {
     expect(find.text('新增记录'), findsOneWidget);
   });
 
-  testWidgets('统计页月度 / 年度切换与金额趋势', (tester) async {
+  testWidgets('统计页月度 / 年度切换与时长金额趋势', (tester) async {
     await pumpPage(tester, const StatsPage());
 
     expect(find.text('统计'), findsOneWidget);
     expect(find.text('月度'), findsOneWidget);
     expect(find.text('年度'), findsOneWidget);
     expect(find.text('月度加班时长'), findsOneWidget);
-    expect(find.text('月度折算工时'), findsOneWidget);
+    expect(find.text('月度增扣金额'), findsOneWidget);
     expect(find.text('月度加班费'), findsOneWidget);
 
     // 总工资卡（含扣增）与请假汇总
@@ -205,24 +205,28 @@ void main() {
     expect(find.text('应发合计'), findsOneWidget);
     expect(find.text('当月请假汇总'), findsOneWidget);
 
-    // 月度：每日金额趋势（折线 + 条形，同一份数据）
-    expect(find.textContaining('每日金额趋势 · 折线'), findsOneWidget);
-    expect(find.textContaining('每日金额趋势 · 条形'), findsOneWidget);
+    // 月度：时长 / 金额 / 增扣项 / 请假扣款，全部为折线图且无条形图
+    expect(find.textContaining('每日时长趋势'), findsOneWidget);
+    expect(find.textContaining('每日金额趋势'), findsOneWidget);
+    expect(find.textContaining('每日增扣金额趋势'), findsOneWidget);
+    expect(find.textContaining('每日请假扣款趋势'), findsOneWidget);
+    expect(find.textContaining('条形'), findsNothing);
+    expect(find.textContaining('回到本月'), findsNothing);
 
     await tester.tap(find.text('年度'));
     await tester.pumpAndSettle();
     expect(find.text('全年加班时长'), findsOneWidget);
-    expect(find.text('全年折算工时'), findsOneWidget);
+    expect(find.text('全年增扣金额'), findsOneWidget);
     expect(find.text('全年加班费'), findsOneWidget);
     expect(find.text('全年总工资（含扣增）'), findsOneWidget);
     expect(find.text('全年请假汇总'), findsOneWidget);
-    expect(find.textContaining('每月金额趋势 · 折线'), findsOneWidget);
-    expect(find.textContaining('每月金额趋势 · 条形'), findsOneWidget);
+    expect(find.textContaining('每月时长趋势'), findsOneWidget);
+    expect(find.textContaining('每月金额趋势'), findsOneWidget);
 
     // 年度前后翻页
     await tester.tap(find.byTooltip('上一年'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('回到今年'));
+    await tester.tap(find.byTooltip('下一年'));
     await tester.pumpAndSettle();
   });
 
@@ -260,6 +264,24 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('设置页默认倍率为独立二级菜单', (tester) async {
+    await pumpPage(tester, const SettingsPage());
+
+    expect(find.text('默认倍率'), findsOneWidget);
+    await tester.ensureVisible(find.text('默认倍率'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('默认倍率'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('默认倍率'), findsOneWidget);
+    expect(find.textContaining('默认倍率 · 工作日'), findsOneWidget);
+    // 倍率统一保留两位小数，长度一致
+    expect(find.text('×1.50'), findsOneWidget);
+    expect(find.text('×2.00'), findsOneWidget);
+    expect(find.text('×3.00'), findsOneWidget);
+    expect(find.text('×1.00'), findsOneWidget);
+  });
+
   testWidgets('工资项页可管理自定义名称', (tester) async {
     await pumpPage(tester, const IncomeItemsPage());
 
@@ -284,17 +306,35 @@ void main() {
     expect(find.text('加班类型'), findsOneWidget);
     expect(find.text('休息时长'), findsOneWidget);
 
-    // 自定义类型才会出现倍率 / 固定时薪编辑
+    // 四个类型共用同一个信息框；自定义通过点击弹窗修改参数
     expect(find.text('按倍率'), findsNothing);
+    expect(find.textContaining('倍率在设置中修改'), findsOneWidget);
     await tester.tap(find.text('自定义'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('点击修改'), findsOneWidget);
+    expect(find.textContaining('固定时薪 ¥'), findsNothing);
+
+    await tester.tap(find.textContaining('点击修改'));
     await tester.pumpAndSettle();
     expect(find.text('按倍率'), findsOneWidget);
     expect(find.text('按固定时薪'), findsOneWidget);
 
-    // 切换为固定时薪
+    // 切换为固定时薪并填写
     await tester.tap(find.text('按固定时薪'));
     await tester.pumpAndSettle();
     expect(find.text('固定加班时薪'), findsOneWidget);
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      '60',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(find.text('按倍率'), findsNothing);
+    expect(find.textContaining('固定时薪 ¥60.00/小时'), findsOneWidget);
 
     // 切回起止时间 / 固定时长
     await tester.tap(find.text('固定时长'));
@@ -345,21 +385,39 @@ void main() {
 
     expect(find.text('新增请假'), findsOneWidget);
     expect(find.text('请假天数'), findsOneWidget);
-    expect(find.text('扣工资金额（元）'), findsNothing);
+
+    // 带薪假默认不扣除，但同样提供扣款输入与比例快捷选择
+    expect(find.text('扣工资金额（元）'), findsOneWidget);
+    expect(find.text('按日薪估算'), findsOneWidget);
+    expect(find.text('不扣除'), findsOneWidget);
 
     await tester.tap(find.text('无薪'));
     await tester.pumpAndSettle();
     expect(find.text('扣工资金额（元）'), findsOneWidget);
     expect(find.text('按日薪估算'), findsOneWidget);
 
+    // 工资区在页面下方，先滚动到可视区域
+    await tester.ensureVisible(find.text('按日薪估算'));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('按日薪估算'));
     await tester.pumpAndSettle();
     // 时薪 50 → 日薪 = 50 × 8 = 400
     expect(find.text('400.00'), findsOneWidget);
 
+    // 快捷比例：扣 50% / 不扣除
+    await tester.tap(find.text('扣 50%'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextFormField, '200.00'), findsOneWidget);
+
+    await tester.tap(find.text('不扣除'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextFormField, '0'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('带薪'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('带薪'));
     await tester.pumpAndSettle();
-    expect(find.text('扣工资金额（元）'), findsNothing);
-    expect(find.text('带薪请假不扣除工资'), findsOneWidget);
+    expect(find.text('扣工资金额（元）'), findsOneWidget);
   });
 }

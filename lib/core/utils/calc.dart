@@ -80,6 +80,10 @@ class WorkCalc {
       );
 
   /// 整月总工资 = 月薪（可选）+ 加班费 + 增项 - 扣项 - 请假扣款
+  ///
+  /// [salaryTotal] / [incomeExtraTotal] / [incomeDeductTotal] 用于
+  /// 按月调薪、按月工资项金额的场景：直接给定当期合计，传入后忽略
+  /// [monthlySalary] × [months] 与 [incomeExtra] × [months] 的算法。
   static double totalSalary({
     required bool includeSalary,
     required double monthlySalary,
@@ -88,15 +92,21 @@ class WorkCalc {
     required double incomeDeduct,
     required double leaveDeduct,
     int months = 1,
+    double? salaryTotal,
+    double? incomeExtraTotal,
+    double? incomeDeductTotal,
   }) {
-    final salary = includeSalary ? monthlySalary * months : 0.0;
-    final value = salary +
-        overtimeAmount +
-        incomeExtra * months -
-        incomeDeduct * months -
-        leaveDeduct;
-    return double.parse(value.toStringAsFixed(2));
+    final salary = salaryTotal ?? (includeSalary ? monthlySalary * months : 0.0);
+    final extra = incomeExtraTotal ?? incomeExtra * months;
+    final deduct = incomeDeductTotal ?? incomeDeduct * months;
+    return roundMoney(
+      salary + overtimeAmount + extra - deduct - leaveDeduct,
+    );
   }
+
+  /// 金额统一保留两位小数
+  static double roundMoney(double value) =>
+      double.parse(value.toStringAsFixed(2));
 
   /// 记录使用的固定加班时薪（记录自带值优先，缺失时回退到设置默认值）
   static double fixedWageOf(OvertimeRecord record, AppSettings settings) {
@@ -118,6 +128,8 @@ class WorkCalc {
   }
 
   /// 按记录 + 当前设置计算金额
+  ///
+  /// 按月薪反推时薪时，会取记录所在月份生效的月薪（支持按月调薪）。
   static double amountOf(OvertimeRecord record, AppSettings settings) {
     if (record.calcMode == CalcModes.fixed) {
       return money(
@@ -125,6 +137,6 @@ class WorkCalc {
         fixedWageOf(record, settings),
       );
     }
-    return money(hoursOf(record, settings), settings.effectiveHourlyWage);
+    return money(hoursOf(record, settings), settings.effectiveHourlyWageFor(record.date));
   }
 }

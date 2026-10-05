@@ -33,7 +33,10 @@ class LeaveRecord {
   /// 请假理由
   String reason;
 
-  /// 扣工资金额（元）。带薪请假恒为 0（不扣除）
+  /// 扣工资金额（元）。
+  ///
+  /// 带薪请假默认为 0（不扣除），也可填写部分扣款（如只扣半天）；
+  /// 无薪请假按填写金额扣除。
   double deductAmount;
 
   DateTime createdAt;
@@ -42,8 +45,8 @@ class LeaveRecord {
   /// 是否带薪
   bool get isPaid => LeaveTypes.isPaid(type);
 
-  /// 实际扣除金额（带薪恒为 0）
-  double get actualDeduct => isPaid ? 0 : deductAmount;
+  /// 实际扣除金额（带薪与无薪均按填写金额，带薪默认为 0）
+  double get actualDeduct => deductAmount;
 
   /// 去重用的业务主键
   String get identityKey => '${formatDateKey(date)}|$type|$reason|$days';

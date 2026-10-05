@@ -4,7 +4,6 @@ import '../core/constants.dart';
 import '../core/holidays.dart';
 import '../core/utils/calc.dart';
 import '../core/utils/time_utils.dart';
-import '../data/models/app_settings.dart';
 import '../data/models/leave_record.dart';
 import 'income_items_provider.dart';
 import 'leaves_provider.dart';
@@ -107,7 +106,7 @@ class LeaveSummary {
   /// 无薪天数
   final double unpaidDays;
 
-  /// 扣工资合计（带薪恒为 0）
+  /// 扣工资合计（带薪默认为 0，也可填写部分扣款）
   final double deduct;
 
   bool get isEmpty => count == 0;
@@ -262,29 +261,40 @@ final monthBreakdownProvider =
   final settings = ref.watch(settingsProvider);
   final overtime = ref.watch(monthlyStatsProvider(key)).amount;
   final leave = ref.watch(monthLeaveSummaryProvider(key));
-  final extra = ref.watch(incomeExtraTotalProvider);
-  final deduct = ref.watch(incomeDeductTotalProvider);
+  final totals = ref.watch(monthIncomeTotalsProvider(key));
   return _breakdown(
-    settings: settings,
     months: 1,
+    salaryTotal: settings.includeSalaryInTotal
+        ? settings.salaryForYearMonth(key.year, key.month)
+        : 0,
     overtime: overtime,
     leaveDeduct: leave.deduct,
-    extra: extra,
-    deduct: deduct,
+    extra: totals.extra,
+    deduct: totals.deduct,
   );
 });
 
-/// 全年工资构成
+/// 全年工资构成（逐月累加，支持按月调薪与按月工资项金额）
 final yearBreakdownProvider =
     Provider.family<SalaryBreakdown, int>((ref, year) {
   final settings = ref.watch(settingsProvider);
   final overtime = ref.watch(yearStatsProvider(year)).amount;
   final leave = ref.watch(yearLeaveSummaryProvider(year));
-  final extra = ref.watch(incomeExtraTotalProvider);
-  final deduct = ref.watch(incomeDeductTotalProvider);
+
+  var salary = 0.0;
+  var extra = 0.0;
+  var deduct = 0.0;
+  for (var month = 1; month <= 12; month++) {
+    if (settings.includeSalaryInTotal) {
+      salary += settings.salaryForYearMonth(year, month);
+    }
+    final totals = ref.watch(monthIncomeTotalsProvider(YearMonth(year, month)));
+    extra += totals.extra;
+    deduct += totals.deduct;
+  }
   return _breakdown(
-    settings: settings,
     months: 12,
+    salaryTotal: salary,
     overtime: overtime,
     leaveDeduct: leave.deduct,
     extra: extra,
@@ -299,7 +309,7 @@ final monthDailyAmountProvider =
     Provider.family<List<double>, YearMonth>((ref, key) {
   final records = ref.watch(recordsProvider);
   final settings = ref.watch(settingsProvider);
-  final fixed = ref.watch(_fixedMonthlyProvider);
+  final fixed = ref.watch(_fixedMonthlyForProvider(key));
   final days = DateTime(key.year, key.month + 1, 0).day;
   final result = List<double>.filled(days, 0);
 
@@ -327,21 +337,101 @@ final yearAmountSeriesProvider =
     Provider.family<List<double>, int>((ref, year) {
   final settings = ref.watch(settingsProvider);
   final monthly = ref.watch(_yearStatsProvider(year));
-  final fixed = ref.watch(_fixedMonthlyProvider);
   return [
     for (var i = 0; i < monthly.length; i++)
-      monthly[i].amount + (settings.showTotalSalary ? fixed : 0),
+      monthly[i].amount +
+          (settings.showTotalSalary
+              ? ref.watch(_fixedMonthlyForProvider(YearMonth(year, i + 1)))
+              : 0),
   ];
 });
 
-/// 每月固定金额（月薪 + 增项 - 扣项），仅在展示总工资时计入
-final _fixedMonthlyProvider = Provider<double>((ref) {
+/// 月度时长趋势：每天的有效加班时长（小时）
+final monthDailyHoursProvider =
+    Provider.family<List<double>, YearMonth>((ref, key) {
+  final records = ref.watch(recordsProvider);
+  final settings = ref.watch(settingsProvider);
+  final days = DateTime(key.year, key.month + 1, 0).day;
+  final result = List<double>.filled(days, 0);
+  for (final record in records) {
+    if (record.date.year != key.year || record.date.month != key.month) continue;
+    result[record.date.day - 1] +=
+        WorkCalc.effectiveMinutesOf(record, settings) / 60.0;
+  }
+  return result;
+});
+
+/// 年度时长趋势：12 个月的有效加班时长（小时）
+final yearMonthlyHoursProvider =
+    Provider.family<List<double>, int>((ref, year) {
+  final monthly = ref.watch(_yearStatsProvider(year));
+  return [
+    for (final month in monthly) month.effectiveMinutes / 60.0,
+  ];
+});
+
+/// 月度请假扣款趋势：每天的请假扣款（元）
+final monthLeaveDeductSeriesProvider =
+    Provider.family<List<double>, YearMonth>((ref, key) {
+  final leaves = ref.watch(leavesProvider);
+  final days = DateTime(key.year, key.month + 1, 0).day;
+  final result = List<double>.filled(days, 0);
+  for (final item in leaves) {
+    if (item.date.year != key.year || item.date.month != key.month) continue;
+    result[item.date.day - 1] += item.actualDeduct;
+  }
+  return result;
+});
+
+/// 年度请假扣款趋势：12 个月的请假扣款（元）
+final yearLeaveDeductSeriesProvider =
+    Provider.family<List<double>, int>((ref, year) {
+  final leaves = ref.watch(leavesProvider);
+  final result = List<double>.filled(12, 0);
+  for (final item in leaves) {
+    if (item.date.year != year) continue;
+    result[item.date.month - 1] += item.actualDeduct;
+  }
+  return result;
+});
+
+/// 月度增扣项趋势：当月增扣净额按工作日平摊（元 / 日）
+final monthIncomeNetSeriesProvider =
+    Provider.family<List<double>, YearMonth>((ref, key) {
+  final net = ref.watch(monthIncomeTotalsProvider(key)).net;
+  final days = DateTime(key.year, key.month + 1, 0).day;
+  final result = List<double>.filled(days, 0);
+  if (net == 0) return result;
+  final workdays = _workdaysInMonth(key);
+  if (workdays <= 0) return result;
+  final perDay = net / workdays;
+  for (var day = 1; day <= days; day++) {
+    if (_isWorkday(DateTime(key.year, key.month, day))) {
+      result[day - 1] = perDay;
+    }
+  }
+  return result;
+});
+
+/// 年度增扣项趋势：12 个月的增扣净额（元）
+final yearIncomeNetSeriesProvider =
+    Provider.family<List<double>, int>((ref, year) {
+  return [
+    for (var month = 1; month <= 12; month++)
+      ref.watch(monthIncomeTotalsProvider(YearMonth(year, month))).net,
+  ];
+});
+
+/// 单月固定金额（月薪 + 增项 - 扣项），仅在展示总工资时计入
+final _fixedMonthlyForProvider =
+    Provider.family<double, YearMonth>((ref, key) {
   final settings = ref.watch(settingsProvider);
   if (!settings.showTotalSalary) return 0;
-  final salary = settings.includeSalaryInTotal ? settings.monthlySalary : 0;
-  final extra = ref.watch(incomeExtraTotalProvider);
-  final deduct = ref.watch(incomeDeductTotalProvider);
-  return salary + extra - deduct;
+  final salary = settings.includeSalaryInTotal
+      ? settings.salaryForYearMonth(key.year, key.month)
+      : 0;
+  final totals = ref.watch(monthIncomeTotalsProvider(key));
+  return salary + totals.net;
 });
 
 final _yearStatsProvider =
@@ -353,32 +443,31 @@ final _yearStatsProvider =
 });
 
 SalaryBreakdown _breakdown({
-  required AppSettings settings,
   required int months,
+  required double salaryTotal,
   required double overtime,
   required double leaveDeduct,
   required double extra,
   required double deduct,
 }) {
-  final salary =
-      settings.includeSalaryInTotal ? settings.monthlySalary * months : 0.0;
-  final total = WorkCalc.totalSalary(
-    includeSalary: settings.includeSalaryInTotal,
-    monthlySalary: settings.monthlySalary,
-    overtimeAmount: overtime,
+  return SalaryBreakdown(
+    months: months,
+    salary: salaryTotal,
+    overtime: overtime,
     incomeExtra: extra,
     incomeDeduct: deduct,
     leaveDeduct: leaveDeduct,
-    months: months,
-  );
-  return SalaryBreakdown(
-    months: months,
-    salary: salary,
-    overtime: overtime,
-    incomeExtra: extra * months,
-    incomeDeduct: deduct * months,
-    leaveDeduct: leaveDeduct,
-    total: total,
+    total: WorkCalc.totalSalary(
+      includeSalary: false,
+      monthlySalary: 0,
+      overtimeAmount: overtime,
+      incomeExtra: 0,
+      incomeDeduct: 0,
+      leaveDeduct: leaveDeduct,
+      salaryTotal: salaryTotal,
+      incomeExtraTotal: extra,
+      incomeDeductTotal: deduct,
+    ),
   );
 }
 

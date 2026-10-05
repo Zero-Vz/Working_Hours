@@ -3,15 +3,54 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
+import '../../data/models/app_settings.dart';
 import '../../providers/settings_provider.dart';
 import 'settings_common.dart';
 
-/// 二级设置：薪资与时薪（时薪 / 月薪、默认倍率、默认固定加班时薪）
-class SalarySettingsPage extends ConsumerWidget {
+/// 二级设置：薪资与时薪（时薪 / 月薪、按月月薪调整、默认固定加班时薪）
+class SalarySettingsPage extends ConsumerStatefulWidget {
   const SalarySettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SalarySettingsPage> createState() => _SalarySettingsPageState();
+}
+
+class _SalarySettingsPageState extends ConsumerState<SalarySettingsPage> {
+  /// 按月月薪列表当前展示的年份
+  int _year = DateTime.now().year;
+
+  void _toast(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// 编辑某个月的月薪；返回「恢复默认」时清除该月的单独设置
+  Future<void> _editMonthSalary(int month, AppSettings settings) async {
+    final notifier = ref.read(settingsProvider.notifier);
+    final has = settings.salaryOverrides.containsKey(yearMonthKey(_year, month));
+    final value = await promptMonthAmount(
+      context,
+      title: '$_year 年 $month 月月薪',
+      label: '元 / 月',
+      initialValue: formatMoney(
+        has ? settings.salaryForYearMonth(_year, month) : settings.monthlySalary,
+      ),
+      min: 0,
+      max: 10000000,
+    );
+    if (value == null || !mounted) return;
+    if (value < 0) {
+      notifier.clearSalaryOverride(_year, month);
+      _toast('已恢复 $_year 年 $month 月的默认月薪');
+      return;
+    }
+    notifier.setSalaryOverride(_year, month, value);
+    _toast('已设置 $_year 年 $month 月月薪，相关金额已重算');
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final settings = ref.watch(settingsProvider);
@@ -90,7 +129,7 @@ class SalarySettingsPage extends ConsumerWidget {
                     );
                     if (value == null || !context.mounted) return;
                     notifier.setMonthlySalary(value);
-                    _toast(context, '月薪已更新，金额已重算');
+                    _toast('月薪已更新，金额已重算');
                   },
                 )
               else
@@ -116,7 +155,7 @@ class SalarySettingsPage extends ConsumerWidget {
                     );
                     if (value == null || !context.mounted) return;
                     notifier.setHourlyWage(value);
-                    _toast(context, '时薪已更新，金额已重算');
+                    _toast('时薪已更新，金额已重算');
                   },
                 ),
               settingsDivider,
@@ -144,60 +183,80 @@ class SalarySettingsPage extends ConsumerWidget {
                   );
                   if (value == null || !context.mounted) return;
                   notifier.setFixedWage(value);
-                  _toast(context, '已更新默认固定加班时薪');
+                  _toast('已更新默认固定加班时薪');
                 },
               ),
             ],
           ),
-          settingsHeader(context, '各类型默认倍率'),
-          settingsCard(
-            context,
-            children: [
-              for (var i = 0; i < OvertimeTypes.all.length; i++) ...[
-                if (i > 0) settingsDivider,
-                Builder(
-                  builder: (context) {
-                    final type = OvertimeTypes.all[i];
-                    return ListTile(
-                      leading: Icon(OvertimeTypes.iconOf(type)),
-                      title: Text('默认倍率 · $type'),
-                      trailing: Text(
-                        '×${rateText(settings.defaultRateOf(type))}',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
+          if (settings.useMonthlySalary) ...[
+            settingsHeader(context, '按月月薪（可选）'),
+            settingsCard(
+              context,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: '上一年',
+                      icon: const Icon(Icons.chevron_left),
+                      onPressed: () => setState(() => _year--),
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          '$_year 年',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                      onTap: () async {
-                        final value = await promptNumber(
-                          context,
-                          title: '默认倍率 · $type',
-                          label: '倍率',
-                          initialValue: rateText(
-                            settings.defaultRateOf(type),
-                          ),
-                          min: 0.01,
-                          max: 100,
-                        );
-                        if (value == null || !context.mounted) return;
-                        ref
-                            .read(settingsProvider.notifier)
-                            .setRateFor(type, value);
-                        _toast(context, '已更新 $type 默认倍率');
-                      },
-                    );
-                  },
+                    ),
+                    IconButton(
+                      tooltip: '下一年',
+                      icon: const Icon(Icons.chevron_right),
+                      onPressed: () => setState(() => _year++),
+                    ),
+                  ],
                 ),
+                settingsDivider,
+                for (var month = 1; month <= 12; month++) ...[
+                  if (month > 1) settingsDivider,
+                  Builder(
+                    builder: (context) {
+                      final has = settings.salaryOverrides
+                          .containsKey(yearMonthKey(_year, month));
+                      final value =
+                          settings.salaryForYearMonth(_year, month);
+                      return ListTile(
+                        leading: Icon(
+                          has
+                              ? Icons.edit_calendar_outlined
+                              : Icons.calendar_month_outlined,
+                          color: has ? scheme.primary : null,
+                        ),
+                        title: Text('$_year 年 $month 月'),
+                        subtitle: Text(
+                          has
+                              ? '已单独设置'
+                              : '默认月薪 ¥${formatMoney(settings.monthlySalary)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        trailing: Text(
+                          '¥${formatMoney(value)}',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: has ? scheme.primary : null,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        onTap: () => _editMonthSalary(month, settings),
+                      );
+                    },
+                  ),
+                ],
               ],
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
   }
-}
-
-void _toast(BuildContext context, String text) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(text)));
 }

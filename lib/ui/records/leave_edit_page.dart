@@ -74,15 +74,22 @@ class _LeaveEditPageState extends ConsumerState<LeaveEditPage> {
     setState(() => _date = dateOnly(picked));
   }
 
-  void _estimateDeduct() {
+  /// 按日薪 × 比例填写扣款（0 = 不扣除，1 = 全额）
+  void _applyRatio(double ratio) {
+    if (ratio <= 0) {
+      setState(() => _deductController.text = '0');
+      return;
+    }
     final daily = _dailyWage;
     if (daily <= 0) {
       _showMessage('请先在「设置 → 薪资与时薪」填写月薪或时薪');
       return;
     }
-    final value = daily * (_days <= 0 ? 1 : _days);
+    final value = daily * (_days <= 0 ? 1 : _days) * ratio;
     setState(() => _deductController.text = formatMoney(value));
   }
+
+  void _estimateDeduct() => _applyRatio(1);
 
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
@@ -93,13 +100,11 @@ class _LeaveEditPageState extends ConsumerState<LeaveEditPage> {
       _showMessage('请假天数必须大于 0');
       return;
     }
-    var deduct = 0.0;
-    if (!_paid) {
-      deduct = double.tryParse(_deductController.text.trim()) ?? 0;
-      if (deduct < 0) {
-        _showMessage('扣工资金额不能为负数');
-        return;
-      }
+    // 带薪与无薪都按填写金额扣除（带薪默认为 0 = 不扣除）
+    final deduct = double.tryParse(_deductController.text.trim()) ?? 0;
+    if (deduct < 0) {
+      _showMessage('扣工资金额不能为负数');
+      return;
     }
 
     final messenger = ScaffoldMessenger.of(context);
@@ -229,8 +234,17 @@ class _LeaveEditPageState extends ConsumerState<LeaveEditPage> {
                             ),
                           ],
                           selected: {_type},
-                          onSelectionChanged: (values) =>
-                              setState(() => _type = values.first),
+                          onSelectionChanged: (values) => setState(() {
+                            _type = values.first;
+                            // 切到无薪且尚未填写扣款时，默认按日薪全额扣除
+                            if (!_paid &&
+                                _deductController.text.trim().isEmpty &&
+                                _dailyWage > 0) {
+                              _deductController.text = formatMoney(
+                                _dailyWage * (_days <= 0 ? 1 : _days),
+                              );
+                            }
+                          }),
                           showSelectedIcon: false,
                           style: const ButtonStyle(
                             visualDensity: VisualDensity.compact,
@@ -311,56 +325,71 @@ class _LeaveEditPageState extends ConsumerState<LeaveEditPage> {
             _card(
               scheme,
               children: [
-                if (_paid)
-                  const ListTile(
-                    leading: Icon(Icons.payments_outlined),
-                    title: Text('扣工资'),
-                    subtitle: Text(
-                      '带薪请假不扣除工资',
-                      style: TextStyle(fontSize: 12),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: TextFormField(
+                    controller: _deductController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
-                    trailing: Text('不扣除'),
-                  )
-                else ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-                    child: TextFormField(
-                      controller: _deductController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: '扣工资金额（元）',
-                        hintText: '填 0 表示不扣除',
-                        prefixIcon: Icon(Icons.remove_circle_outline),
-                        isDense: true,
-                      ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    ],
+                    decoration: InputDecoration(
+                      labelText: '扣工资金额（元）',
+                      hintText: '填 0 表示不扣除',
+                      helperText: _paid
+                          ? '带薪请假默认不扣除，可按需扣部分（如只扣半天）'
+                          : '无薪请假默认按日薪全额扣除',
+                      helperMaxLines: 2,
+                      prefixIcon: const Icon(Icons.remove_circle_outline),
+                      isDense: true,
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '日薪参考 ¥${formatMoney(_dailyWage)}'
-                            '（${_dailyWage <= 0 ? '先设置薪资' : '按 ${formatDays(_days <= 0 ? 1 : _days)} 天 ≈ ¥${formatMoney(_dailyWage * (_days <= 0 ? 1 : _days))}'}）',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final item in const <(String, double)>[
+                        ('不扣除', 0),
+                        ('扣 25%', 0.25),
+                        ('扣 50%', 0.5),
+                        ('扣 100%', 1),
+                      ])
+                        ActionChip(
+                          label: Text(
+                            item.$1,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () => _applyRatio(item.$2),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '日薪参考 ¥${formatMoney(_dailyWage)}'
+                          '（${_dailyWage <= 0 ? '先设置薪资' : '按 ${formatDays(_days <= 0 ? 1 : _days)} 天 ≈ ¥${formatMoney(_dailyWage * (_days <= 0 ? 1 : _days))}'}）',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
                           ),
                         ),
-                        TextButton.icon(
-                          onPressed: _estimateDeduct,
-                          icon: const Icon(Icons.calculate_outlined, size: 18),
-                          label: const Text('按日薪估算'),
-                        ),
-                      ],
-                    ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _estimateDeduct,
+                        icon: const Icon(Icons.calculate_outlined, size: 18),
+                        label: const Text('按日薪估算'),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ],
             ),
             const SizedBox(height: 24),
