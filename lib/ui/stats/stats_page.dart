@@ -44,7 +44,7 @@ class StatsPage extends ConsumerWidget {
         ? <String>[for (var m = 1; m <= 12; m++) '$m月']
         : <String>[for (var d = 1; d <= series.length; d++) '$d'];
     final labelEvery = byYear ? 1 : 5;
-    final hasData = series.any((value) => value > 0);
+    final hasData = series.any((value) => value != 0);
     final emptyText = byYear ? '该年度暂无数据' : '该月暂无数据';
     final chartTitle = byYear
         ? '$year 年每月金额趋势'
@@ -649,7 +649,7 @@ class _EmptyChart extends StatelessWidget {
 
 /// 左轴刻度：金额，0 显示为 0
 String _axisText(double value) =>
-    value >= 10 ? value.toStringAsFixed(0) : formatMoney(value);
+    value.abs() >= 10 ? value.toStringAsFixed(0) : formatMoney(value);
 
 /// 金额趋势折线图
 class _LineChart extends StatelessWidget {
@@ -670,13 +670,15 @@ class _LineChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxValue = values.fold<double>(0, (a, b) => a > b ? a : b);
-    final maxY = maxValue <= 0 ? 10.0 : maxValue * 1.3;
-    final interval = maxY / 4;
+    final minValue = values.fold<double>(0, (a, b) => a < b ? a : b);
+    final maxY = maxValue > 0 ? maxValue * 1.3 : 1.0;
+    final minY = minValue < 0 ? minValue * 1.3 : 0.0;
+    final interval = (maxY - minY) / 4;
     final dense = values.length > 12;
 
     return LineChart(
       LineChartData(
-        minY: 0,
+        minY: minY,
         maxY: maxY,
         gridData: FlGridData(
           show: true,
@@ -804,13 +806,15 @@ class _BarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxValue = values.fold<double>(0, (a, b) => a > b ? a : b);
-    final maxY = maxValue <= 0 ? 1.0 : maxValue * 1.3;
-    final interval = maxY / 4;
+    final minValue = values.fold<double>(0, (a, b) => a < b ? a : b);
+    final maxY = maxValue > 0 ? maxValue * 1.3 : 1.0;
+    final minY = minValue < 0 ? minValue * 1.3 : 0.0;
+    final interval = (maxY - minY) / 4;
     final dense = values.length > 28;
 
     return BarChart(
       BarChartData(
-        minY: 0,
+        minY: minY,
         maxY: maxY,
         alignment: BarChartAlignment.spaceAround,
         gridData: FlGridData(
@@ -900,7 +904,7 @@ class _BarChart extends StatelessWidget {
                 BarChartRodData(
                   toY: values[i],
                   width: dense ? 6 : 12,
-                  color: values[i] > 0 ? color : scheme.outlineVariant,
+                  color: values[i] != 0 ? color : scheme.outlineVariant,
                   borderRadius: BorderRadius.circular(3),
                 ),
               ],
