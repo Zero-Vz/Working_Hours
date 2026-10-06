@@ -7,6 +7,7 @@ import '../../data/holiday_store.dart';
 import '../../data/update_check_service.dart';
 import '../../providers/income_items_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/version_provider.dart';
 import 'calc_settings_page.dart';
 import 'data_settings_page.dart';
 import 'holidays_settings_page.dart';
@@ -25,6 +26,9 @@ class SettingsPage extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
     final extra = ref.watch(incomeExtraTotalProvider);
     final deduct = ref.watch(incomeDeductTotalProvider);
+
+    // 关于页展示的版本：优先取 APK manifest 中的 versionName
+    final version = ref.watch(appVersionProvider).valueOrNull ?? kAppVersion;
 
     final salarySubtitle = settings.useMonthlySalary
         ? '月薪 ¥${formatMoney(settings.monthlySalary)} · '
@@ -206,15 +210,15 @@ class SettingsPage extends ConsumerWidget {
               ListTile(
                 leading: const Icon(Icons.system_update_outlined),
                 title: const Text('检查软件更新'),
-                subtitle: const Text('当前 v$kAppVersion · 更新源 GitHub Releases'),
+                subtitle: Text('当前 v$version · 更新源 GitHub Releases'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _checkForUpdate(context, ref),
               ),
               settingsDivider,
-              const ListTile(
-                leading: Icon(Icons.info_outline),
-                title: Text('记工时 v$kAppVersion'),
-                subtitle: Text(
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: Text('记工时 v$version'),
+                subtitle: const Text(
                   '离线优先 · 数据仅保存在本机\n'
                   '联网仅用于：更新节假日数据、检查软件更新',
                 ),
@@ -251,16 +255,19 @@ Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
     if (!context.mounted) return;
     messenger.hideCurrentSnackBar();
 
-    final newer = UpdateCheckService.isNewer(info.version);
+    // 本机版本以 APK manifest 为准，避免与常量不同步导致误判
+    final local = await ref.read(appVersionProvider.future);
+    if (!context.mounted) return;
+    final newer = UpdateCheckService.isNewer(info.version, local);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(newer ? '发现新版本 v${info.version}' : '已是最新版本'),
         content: Text(
           newer
-              ? '当前 v$kAppVersion → 新版 v${info.version}\n\n'
+              ? '当前 v$local → 新版 v${info.version}\n\n'
                   '${info.notes.isEmpty ? '前往发布页查看更新说明。' : info.notes}'
-              : '当前 v$kAppVersion 已是最新版本。'),
+              : '当前 v$local 已是最新版本。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),

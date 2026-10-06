@@ -147,8 +147,12 @@ const double kMonthlyPayDays = 21.75;
 /// 每日标准工作小时数
 const double kDailyWorkHours = 8.0;
 
-/// 应用版本号（关于页展示）
-const String kAppVersion = '1.5.0';
+/// 应用版本号（HTTP User-Agent、关于页兜底展示）
+///
+/// 关于页优先读取 [appVersionProvider]（PackageInfo，来自 APK manifest），
+/// 本常量仅作为平台通道不可用时的回退；改动需同步 pubspec.yaml 的 version，
+/// `test/version_test.dart` 会校验两者一致。
+const String kAppVersion = '1.5.2';
 
 /// 统计页趋势图的显示样式
 class TrendChartStyles {
