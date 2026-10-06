@@ -13,6 +13,7 @@ import 'package:working_hours/ui/records/record_edit_page.dart';
 import 'package:working_hours/ui/records/record_list_page.dart';
 import 'package:working_hours/ui/settings/income_items_page.dart';
 import 'package:working_hours/ui/settings/settings_page.dart';
+import 'package:working_hours/ui/settings/stats_settings_page.dart';
 import 'package:working_hours/ui/stats/stats_page.dart';
 
 /// 页面冒烟测试：确认主要页面可正常渲染、交互不抛异常（含布局溢出）。
@@ -280,6 +281,82 @@ void main() {
     expect(find.text('×2.00'), findsOneWidget);
     expect(find.text('×3.00'), findsOneWidget);
     expect(find.text('×1.00'), findsOneWidget);
+  });
+
+  testWidgets('设置页节假日数据入口与关于区块', (tester) async {
+    await pumpPage(tester, const SettingsPage());
+
+    // 节假日数据二级菜单（内置 2025、2026 年）
+    await tester.ensureVisible(find.text('节假日数据'));
+    await tester.pumpAndSettle();
+    expect(find.text('节假日数据'), findsOneWidget);
+    expect(find.textContaining('内置 2025、2026 年'), findsOneWidget);
+
+    await tester.tap(find.text('节假日数据'));
+    await tester.pumpAndSettle();
+    expect(find.text('联网更新'), findsOneWidget);
+    expect(find.text('从文件导入'), findsOneWidget);
+    expect(find.text('导出当前数据'), findsOneWidget);
+    expect(find.text('更新地址'), findsOneWidget);
+    // 仍是内置数据时不出「恢复内置」入口
+    expect(find.text('恢复内置数据'), findsNothing);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    // 关于：项目主页、开发者、检查软件更新
+    await tester.drag(find.byType(ListView).first, const Offset(0, -800));
+    await tester.pumpAndSettle();
+    expect(find.text('项目主页'), findsOneWidget);
+    expect(find.text('开发者 $kDeveloperName'), findsOneWidget);
+    expect(find.text('检查软件更新'), findsOneWidget);
+    expect(find.text('记工时 v$kAppVersion'), findsOneWidget);
+  });
+
+  testWidgets('统计显示页：图表样式与四张趋势开关', (tester) async {
+    await pumpPage(tester, const StatsSettingsPage());
+
+    // 滚到图表样式 / 趋势显示分组
+    await tester.drag(find.byType(ListView).first, const Offset(0, -320));
+    await tester.pumpAndSettle();
+
+    expect(find.text('趋势用条形图显示'), findsOneWidget);
+    expect(find.text('显示时长趋势'), findsOneWidget);
+    expect(find.text('显示金额趋势'), findsOneWidget);
+    expect(find.text('显示增扣趋势'), findsOneWidget);
+    expect(find.text('显示请假扣款趋势'), findsOneWidget);
+
+    // 关闭「显示时长趋势」，统计页应不再渲染该趋势卡
+    await tester.tap(find.widgetWithText(SwitchListTile, '显示时长趋势'));
+    await tester.pumpAndSettle();
+
+    await pumpPage(tester, const StatsPage());
+    expect(find.textContaining('每日时长趋势'), findsNothing);
+    expect(find.textContaining('每日金额趋势'), findsOneWidget);
+
+    // 恢复开关，避免影响后续用例
+    await pumpPage(tester, const StatsSettingsPage());
+    await tester.drag(find.byType(ListView).first, const Offset(0, -320));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, '显示时长趋势'));
+    await tester.pumpAndSettle();
+
+    // 趋势卡标题右侧可在折线 / 条形之间一键切换
+    await pumpPage(tester, const StatsPage());
+    expect(find.textContaining('每日时长趋势'), findsOneWidget);
+    final toBar = find.byTooltip('改为条形图');
+    expect(toBar, findsWidgets);
+    await tester.ensureVisible(toBar.first);
+    await tester.pumpAndSettle();
+    await tester.tap(toBar.first);
+    await tester.pumpAndSettle();
+    final toLine = find.byTooltip('改为折线图');
+    expect(toLine, findsWidgets);
+    await tester.ensureVisible(toLine.first);
+    await tester.pumpAndSettle();
+    await tester.tap(toLine.first);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('改为条形图'), findsWidgets);
   });
 
   testWidgets('工资项页可管理自定义名称', (tester) async {

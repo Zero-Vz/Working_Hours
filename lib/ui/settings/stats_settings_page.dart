@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
 import '../../providers/settings_provider.dart';
 import 'settings_common.dart';
@@ -13,6 +14,32 @@ class StatsSettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
     final notifier = ref.read(settingsProvider.notifier);
+
+    // 四张趋势图的独立开关（结构一致，统一构建）
+    Widget trendSwitch({
+      required bool value,
+      required IconData icon,
+      required String title,
+      required String subtitle,
+      required ValueChanged<bool> onChanged,
+      bool divider = true,
+    }) {
+      return Column(
+        children: [
+          if (divider) settingsDivider,
+          SwitchListTile(
+            secondary: Icon(icon),
+            title: Text(title),
+            subtitle: Text(
+              value ? subtitle : '已隐藏该趋势图（数据不受影响）',
+              style: const TextStyle(fontSize: 12),
+            ),
+            value: value,
+            onChanged: onChanged,
+          ),
+        ],
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('统计显示')),
@@ -110,6 +137,67 @@ class StatsSettingsPage extends ConsumerWidget {
                     value ? '已显示增扣项' : '已隐藏增扣项（数据保留）',
                   );
                 },
+              ),
+            ],
+          ),
+          settingsHeader(context, '图表样式'),
+          settingsCard(
+            context,
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.bar_chart_rounded),
+                title: const Text('趋势用条形图显示'),
+                subtitle: Text(
+                  settings.useBarChart
+                      ? '当前：条形图 · 四张趋势图统一生效'
+                      : '当前：折线图 · 四张趋势图统一生效',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                value: settings.useBarChart,
+                onChanged: (value) {
+                  notifier.setTrendChartStyle(
+                    value ? TrendChartStyles.bar : TrendChartStyles.line,
+                  );
+                  _toast(
+                    context,
+                    value ? '趋势图已切换为条形图' : '趋势图已切换为折线图',
+                  );
+                },
+              ),
+            ],
+          ),
+          settingsHeader(context, '趋势显示'),
+          settingsCard(
+            context,
+            children: [
+              trendSwitch(
+                value: settings.showHoursTrend,
+                icon: Icons.timelapse_outlined,
+                title: '显示时长趋势',
+                subtitle: '按天 / 按月展示有效加班时长',
+                onChanged: notifier.setShowHoursTrend,
+                divider: false,
+              ),
+              trendSwitch(
+                value: settings.showAmountTrend,
+                icon: Icons.payments_outlined,
+                title: '显示金额趋势',
+                subtitle: '按天 / 按月展示加班费金额',
+                onChanged: notifier.setShowAmountTrend,
+              ),
+              trendSwitch(
+                value: settings.showIncomeTrend,
+                icon: Icons.tune_outlined,
+                title: '显示增扣趋势',
+                subtitle: '工资项增项与扣项的净额走势',
+                onChanged: notifier.setShowIncomeTrend,
+              ),
+              trendSwitch(
+                value: settings.showLeaveTrend,
+                icon: Icons.beach_access_outlined,
+                title: '显示请假扣款趋势',
+                subtitle: '每天请假扣款金额走势',
+                onChanged: notifier.setShowLeaveTrend,
               ),
             ],
           ),

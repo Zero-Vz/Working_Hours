@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 仅在你主动触发「更新节假日数据」或「检查软件更新」时联网；
+         应用不后台联网、不上传任何数据，日常记录与统计完全离线。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="记工时"
         android:name="${applicationName}"
@@ -40,6 +44,15 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- 打开项目主页 / 更新发布页（url_launcher 跳转系统浏览器） -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
         </intent>
     </queries>
 </manifest>

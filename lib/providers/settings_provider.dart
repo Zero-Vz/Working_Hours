@@ -125,6 +125,51 @@ class SettingsNotifier extends Notifier<AppSettings> {
     _persist();
   }
 
+  /// 趋势图样式：折线图 / 条形图
+  void setTrendChartStyle(String value) {
+    state = state.copyWith(trendChartStyle: TrendChartStyles.normalize(value));
+    _persist();
+  }
+
+  /// 四张趋势图的独立显示开关（时长 / 金额 / 增扣 / 请假）
+  void setShowHoursTrend(bool value) {
+    state = state.copyWith(showHoursTrend: value);
+    _persist();
+  }
+
+  void setShowAmountTrend(bool value) {
+    state = state.copyWith(showAmountTrend: value);
+    _persist();
+  }
+
+  void setShowIncomeTrend(bool value) {
+    state = state.copyWith(showIncomeTrend: value);
+    _persist();
+  }
+
+  void setShowLeaveTrend(bool value) {
+    state = state.copyWith(showLeaveTrend: value);
+    _persist();
+  }
+
+  /// 节假日数据联网更新地址
+  void setHolidayUpdateUrl(String value) {
+    final trimmed = value.trim();
+    state = state.copyWith(
+      holidayUpdateUrl: trimmed.isEmpty ? kHolidayUpdateUrl : trimmed,
+    );
+    _persist();
+  }
+
+  /// 检查软件更新的接口地址
+  void setReleaseApiUrl(String value) {
+    final trimmed = value.trim();
+    state = state.copyWith(
+      releaseApiUrl: trimmed.isEmpty ? kReleaseApiUrl : trimmed,
+    );
+    _persist();
+  }
+
   /// 记住新增记录的开始 / 结束时间与固定时长（下次新增直接带出）
   void rememberEntry({
     required String start,
@@ -185,6 +230,13 @@ class SettingsNotifier extends Notifier<AppSettings> {
       'showLeaveRecords',
       'showIncomeItems',
       'salaryOverrides',
+      'trendChartStyle',
+      'showHoursTrend',
+      'showAmountTrend',
+      'showIncomeTrend',
+      'showLeaveTrend',
+      'holidayUpdateUrl',
+      'releaseApiUrl',
     };
     final payload = <String, dynamic>{
       for (final entry in data.entries)

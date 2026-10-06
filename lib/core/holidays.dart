@@ -98,9 +98,134 @@ final Set<String> kHolidayBreaks = <String>{
   ..._daysBetween(DateTime(2026, 10, 1), DateTime(2026, 10, 7)), // 国庆
 };
 
+/// 节假日数据（三类日期集合，元素统一为 `yyyy-MM-dd`）
+///
+/// 内置数据见 [kStatutoryHolidays] / [kHolidayBreaks] / [kMakeupWorkdays]，
+/// 也可通过「联网更新 / 导入文件」扩展后续年份。
+class HolidayData {
+  const HolidayData({
+    this.statutory = const <String>{},
+    this.makeup = const <String>{},
+    this.breaks = const <String>{},
+  });
+
+  /// 法定节假日（3 倍薪资当天）
+  final Set<String> statutory;
+
+  /// 调休补班日（周末上班，按工作日）
+  final Set<String> makeup;
+
+  /// 放假连休的全部日期（含法定当天与调休休息日）
+  final Set<String> breaks;
+
+  /// 内置数据（随 APK 发布的 2025 / 2026 年安排）
+  static HolidayData get builtin => HolidayData(
+        statutory: kStatutoryHolidays,
+        makeup: kMakeupWorkdays,
+        breaks: kHolidayBreaks,
+      );
+
+  /// 数据覆盖的年份（升序）
+  Set<int> get years {
+    final result = <int>{};
+    for (final key in <String>{...statutory, ...makeup, ...breaks}) {
+      final year = _yearOf(key);
+      if (year > 0) result.add(year);
+    }
+    return result;
+  }
+
+  /// 日期总条数
+  int get length => statutory.length + makeup.length + breaks.length;
+
+  bool get isEmpty => length == 0;
+
+  /// 返回「本数据中出现过的年份被 incoming 覆盖」后的新数据，
+  /// 未被覆盖的年份保持原样（导入 2027 年数据不会影响 2025 / 2026）。
+  HolidayData withReplacedYears(HolidayData incoming) {
+    if (incoming.isEmpty) return this;
+    final incomingYears = incoming.years;
+    Set<String> keep(Set<String> base) => <String>{
+          for (final key in base)
+            if (!incomingYears.contains(_yearOf(key))) key,
+        };
+    return HolidayData(
+      statutory: <String>{...keep(statutory), ...incoming.statutory},
+      makeup: <String>{...keep(makeup), ...incoming.makeup},
+      breaks: <String>{...keep(breaks), ...incoming.breaks},
+    );
+  }
+
+  /// 由键值表还原（供备份 / 缓存读取）
+  factory HolidayData.fromMap(Map<dynamic, dynamic>? map) {
+    Set<String> read(String key) => map?[key] is List
+        ? (map![key] as List).whereType<String>().toSet()
+        : <String>{};
+    return HolidayData(
+      statutory: read('statutory'),
+      makeup: read('makeup'),
+      breaks: read('breaks'),
+    );
+  }
+
+  /// 序列化为键值表
+  Map<String, dynamic> toMap() => <String, dynamic>{
+        'statutory': statutory.toList()..sort(),
+        'makeup': makeup.toList()..sort(),
+        'breaks': breaks.toList()..sort(),
+      };
+
+  static int _yearOf(String key) {
+    if (key.length < 4) return -1;
+    return int.tryParse(key.substring(0, 4)) ?? -1;
+  }
+}
+
+/// 日期写法规整：
+///
+/// - `2027-01-01` → 单日
+/// - `2027-01-01..2027-01-03` → 展开为首尾齐全的区间
+///
+/// 格式非法时返回空集合（由调用方统计被忽略的数量）。
+Set<String> expandDateSpec(String spec) {
+  final raw = spec.trim();
+  if (raw.isEmpty) return <String>{};
+  if (!raw.contains('..')) return _isDateKey(raw) ? <String>{raw} : <String>{};
+
+  final parts = raw.split('..');
+  if (parts.length != 2) return <String>{};
+  final start = _parseDateKey(parts[0].trim());
+  final end = _parseDateKey(parts[1].trim());
+  if (start == null || end == null || end.isBefore(start)) return <String>{};
+  return _daysBetween(start, end);
+}
+
+bool _isDateKey(String value) => _parseDateKey(value) != null;
+
+DateTime? _parseDateKey(String value) {
+  if (value.length != 10) return null;
+  final parts = value.split('-');
+  if (parts.length != 3) return null;
+  final year = int.tryParse(parts[0]);
+  final month = int.tryParse(parts[1]);
+  final day = int.tryParse(parts[2]);
+  if (year == null || month == null || day == null) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  final date = DateTime(year, month, day);
+  if (date.year != year || date.month != month || date.day != day) return null;
+  return date;
+}
+
 /// 按日历自动推断日期属性
 class CalendarRules {
   const CalendarRules._();
+
+  /// 当前生效的节假日数据：
+  /// 默认为内置数据，联网更新 / 导入文件后由 [setActive] 切换。
+  static HolidayData activeData = HolidayData.builtin;
+
+  /// 切换生效的节假日数据（HolidayStore 写入后调用）
+  static void setActive(HolidayData data) => activeData = data;
 
   /// 是否为周末（周六 / 周日）
   static bool isWeekend(DateTime date) =>
@@ -108,15 +233,15 @@ class CalendarRules {
 
   /// 是否为调休补班日（周末但要上班）
   static bool isMakeupWorkday(DateTime date) =>
-      kMakeupWorkdays.contains(formatDateKey(date));
+      activeData.makeup.contains(formatDateKey(date));
 
   /// 是否为法定节假日（3 倍）
   static bool isStatutoryHoliday(DateTime date) =>
-      kStatutoryHolidays.contains(formatDateKey(date));
+      activeData.statutory.contains(formatDateKey(date));
 
   /// 是否在放假连休期间（含法定当天与调休休息日）
   static bool isHolidayBreak(DateTime date) =>
-      kHolidayBreaks.contains(formatDateKey(date));
+      activeData.breaks.contains(formatDateKey(date));
 
   /// 根据日历自动推断加班类型：
   ///

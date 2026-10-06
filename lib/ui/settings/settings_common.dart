@@ -3,8 +3,25 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/utils/time_utils.dart';
+
+/// 用系统浏览器打开外部链接（项目主页、发布页等）
+///
+/// 返回是否成功；失败原因由调用方决定如何提示。
+Future<bool> openExternalUrl(String url) async {
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null || !uri.hasScheme) return false;
+  try {
+    return await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+  } catch (_) {
+    return false;
+  }
+}
 
 /// 数字输入弹窗，返回 null 表示取消
 Future<double?> promptNumber(

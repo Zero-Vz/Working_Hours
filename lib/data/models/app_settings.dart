@@ -30,6 +30,13 @@ class AppSettings {
     this.lastEndTime = '21:00',
     this.lastFixedDuration = 180,
     this.salaryOverrides = const <String, double>{},
+    this.trendChartStyle = TrendChartStyles.line,
+    this.showHoursTrend = true,
+    this.showAmountTrend = true,
+    this.showIncomeTrend = true,
+    this.showLeaveTrend = true,
+    this.holidayUpdateUrl = kHolidayUpdateUrl,
+    this.releaseApiUrl = kReleaseApiUrl,
   });
 
   /// 时薪（元 / 小时，salaryMode 为 hourly 时生效）
@@ -90,6 +97,24 @@ class AppSettings {
 
   /// 按月单独设置的月薪（键为年月，如 2026-10；缺省月份用 [monthlySalary]）
   final Map<String, double> salaryOverrides;
+
+  /// 统计页趋势图样式：line（折线）/ bar（条形）
+  final String trendChartStyle;
+
+  /// 统计页四张趋势图的独立显示开关（时长 / 金额 / 增扣 / 请假）
+  final bool showHoursTrend;
+  final bool showAmountTrend;
+  final bool showIncomeTrend;
+  final bool showLeaveTrend;
+
+  /// 节假日数据联网更新地址
+  final String holidayUpdateUrl;
+
+  /// 检查软件更新的接口地址（返回 GitHub Releases 风格的 JSON）
+  final String releaseApiUrl;
+
+  /// 趋势图是否用条形图显示
+  bool get useBarChart => trendChartStyle == TrendChartStyles.bar;
 
   ThemeMode get theme {
     switch (themeMode) {
@@ -168,6 +193,13 @@ class AppSettings {
     String? lastEndTime,
     int? lastFixedDuration,
     Map<String, double>? salaryOverrides,
+    String? trendChartStyle,
+    bool? showHoursTrend,
+    bool? showAmountTrend,
+    bool? showIncomeTrend,
+    bool? showLeaveTrend,
+    String? holidayUpdateUrl,
+    String? releaseApiUrl,
   }) {
     return AppSettings(
       hourlyWage: hourlyWage ?? this.hourlyWage,
@@ -192,6 +224,13 @@ class AppSettings {
       lastEndTime: lastEndTime ?? this.lastEndTime,
       lastFixedDuration: lastFixedDuration ?? this.lastFixedDuration,
       salaryOverrides: salaryOverrides ?? this.salaryOverrides,
+      trendChartStyle: trendChartStyle ?? this.trendChartStyle,
+      showHoursTrend: showHoursTrend ?? this.showHoursTrend,
+      showAmountTrend: showAmountTrend ?? this.showAmountTrend,
+      showIncomeTrend: showIncomeTrend ?? this.showIncomeTrend,
+      showLeaveTrend: showLeaveTrend ?? this.showLeaveTrend,
+      holidayUpdateUrl: holidayUpdateUrl ?? this.holidayUpdateUrl,
+      releaseApiUrl: releaseApiUrl ?? this.releaseApiUrl,
     );
   }
 
@@ -213,6 +252,12 @@ class AppSettings {
         final amount = (value as num?)?.toDouble();
         if (key is String && amount != null) overrides[key] = amount;
       });
+    }
+
+    // 地址类设置：清空时回退到默认地址
+    String url(String key, String fallback) {
+      final value = box.get(key, defaultValue: fallback) as String? ?? '';
+      return value.trim().isEmpty ? fallback : value.trim();
     }
 
     return AppSettings(
@@ -240,6 +285,15 @@ class AppSettings {
       lastEndTime: text('lastEndTime', '21:00'),
       lastFixedDuration: integer('lastFixedDuration', 180),
       salaryOverrides: overrides,
+      trendChartStyle: TrendChartStyles.normalize(
+        box.get('trendChartStyle') as String?,
+      ),
+      showHoursTrend: flag('showHoursTrend', fallback: true),
+      showAmountTrend: flag('showAmountTrend', fallback: true),
+      showIncomeTrend: flag('showIncomeTrend', fallback: true),
+      showLeaveTrend: flag('showLeaveTrend', fallback: true),
+      holidayUpdateUrl: url('holidayUpdateUrl', kHolidayUpdateUrl),
+      releaseApiUrl: url('releaseApiUrl', kReleaseApiUrl),
     );
   }
 
@@ -267,6 +321,13 @@ class AppSettings {
         'lastEndTime': lastEndTime,
         'lastFixedDuration': lastFixedDuration,
         'salaryOverrides': salaryOverrides,
+        'trendChartStyle': trendChartStyle,
+        'showHoursTrend': showHoursTrend,
+        'showAmountTrend': showAmountTrend,
+        'showIncomeTrend': showIncomeTrend,
+        'showLeaveTrend': showLeaveTrend,
+        'holidayUpdateUrl': holidayUpdateUrl,
+        'releaseApiUrl': releaseApiUrl,
       };
 
   /// 写入本地 Box

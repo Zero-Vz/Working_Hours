@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
 import '../../core/utils/time_utils.dart';
+import '../../data/holiday_store.dart';
+import '../../data/update_check_service.dart';
 import '../../providers/income_items_provider.dart';
 import '../../providers/settings_provider.dart';
 import 'calc_settings_page.dart';
 import 'data_settings_page.dart';
+import 'holidays_settings_page.dart';
 import 'income_items_page.dart';
 import 'rate_settings_page.dart';
 import 'salary_settings_page.dart';
@@ -52,11 +55,15 @@ class SettingsPage extends ConsumerWidget {
               ListTile(
                 leading: const Icon(Icons.percent_outlined),
                 title: const Text('默认倍率'),
+                // 两行两列，避免四个倍率挤在一行换出孤字
                 subtitle: Text(
                   [
-                    for (final type in OvertimeTypes.all)
-                      '$type ×${rateText(settings.defaultRateOf(type))}',
-                  ].join('　'),
+                    for (var i = 0; i < OvertimeTypes.all.length; i += 2)
+                      [
+                        for (final type in OvertimeTypes.all.skip(i).take(2))
+                          '$type ×${rateText(settings.defaultRateOf(type))}',
+                      ].join('　'),
+                  ].join('\n'),
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
@@ -90,14 +97,29 @@ class SettingsPage extends ConsumerWidget {
               ListTile(
                 leading: const Icon(Icons.receipt_long_outlined),
                 title: const Text('工资项'),
+                // 按增 / 扣拆成两行，避免折行留下孤字
                 subtitle: Text(
-                  '补贴 / 绩效 ¥${formatMoney(extra)} · '
-                  '税费保险 -¥${formatMoney(deduct)} / 月',
+                  '增项：补贴 / 绩效 ¥${formatMoney(extra)}\n'
+                  '扣项：税费保险 -¥${formatMoney(deduct)} / 月',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const IncomeItemsPage(),
+                  ),
+                ),
+              ),
+              settingsDivider,
+              ListTile(
+                leading: const Icon(Icons.celebration_outlined),
+                title: const Text('节假日数据'),
+                subtitle: Text(
+                  '内置 ${HolidayStore.yearsText} 年 · 可联网更新或导入',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const HolidaysSettingsPage(),
                   ),
                 ),
               ),
@@ -165,12 +187,36 @@ class SettingsPage extends ConsumerWidget {
           settingsCard(
             context,
             children: [
+              ListTile(
+                leading: const Icon(Icons.rocket_launch_outlined),
+                title: const Text('项目主页'),
+                subtitle: const Text('github.com/Zero-Vz/Working_Hours'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () => _openExternalUrl(context, kRepoUrl),
+              ),
+              settingsDivider,
+              ListTile(
+                leading: const Icon(Icons.code_outlined),
+                title: const Text('开发者 $kDeveloperName'),
+                subtitle: const Text('开源免费 · 功能建议与问题反馈请在项目主页提交'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () => _openExternalUrl(context, kDeveloperUrl),
+              ),
+              settingsDivider,
+              ListTile(
+                leading: const Icon(Icons.system_update_outlined),
+                title: const Text('检查软件更新'),
+                subtitle: const Text('当前 v$kAppVersion · 更新源 GitHub Releases'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _checkForUpdate(context, ref),
+              ),
+              settingsDivider,
               const ListTile(
                 leading: Icon(Icons.info_outline),
                 title: Text('记工时 v$kAppVersion'),
                 subtitle: Text(
-                  '纯离线应用：不联网、不登录、不申请任何权限；'
-                  '所有数据仅保存在本机。',
+                  '离线优先 · 数据仅保存在本机\n'
+                  '联网仅用于：更新节假日数据、检查软件更新',
                 ),
               ),
             ],
@@ -178,5 +224,96 @@ class SettingsPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// 打开外部链接，失败时给出提示
+Future<void> _openExternalUrl(BuildContext context, String url) async {
+  final ok = await openExternalUrl(url);
+  if (!ok && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('未能打开链接，请稍后重试')),
+    );
+  }
+}
+
+/// 检查软件更新：成功弹结果，失败可直接修改更新地址
+Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.showSnackBar(
+    const SnackBar(content: Text('正在检查更新…')),
+  );
+
+  try {
+    final info = await UpdateCheckService.check(
+      ref.read(settingsProvider).releaseApiUrl,
+    );
+    if (!context.mounted) return;
+    messenger.hideCurrentSnackBar();
+
+    final newer = UpdateCheckService.isNewer(info.version);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(newer ? '发现新版本 v${info.version}' : '已是最新版本'),
+        content: Text(
+          newer
+              ? '当前 v$kAppVersion → 新版 v${info.version}\n\n'
+                  '${info.notes.isEmpty ? '前往发布页查看更新说明。' : info.notes}'
+              : '当前 v$kAppVersion 已是最新版本。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(newer ? '关闭' : '确定'),
+          ),
+          if (newer)
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _openExternalUrl(context, info.url);
+              },
+              child: const Text('前往下载页'),
+            ),
+        ],
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    messenger.hideCurrentSnackBar();
+    final settings = ref.read(settingsProvider);
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('检查更新失败'),
+        content: Text(
+          '$error\n\n当前更新地址：\n${settings.releaseApiUrl}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop('edit'),
+            child: const Text('修改地址'),
+          ),
+        ],
+      ),
+    );
+    if (action == 'edit' && context.mounted) {
+      final next = await promptText(
+        context,
+        title: '更新地址',
+        label: 'GitHub Releases 接口地址',
+        initialValue: settings.releaseApiUrl,
+      );
+      if (next != null && context.mounted) {
+        ref.read(settingsProvider.notifier).setReleaseApiUrl(next);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('更新地址已保存')),
+        );
+      }
+    }
   }
 }

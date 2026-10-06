@@ -1,7 +1,7 @@
 name: working_hours
-description: 记工时 - 纯离线的加班工时记录、统计与导出应用（Material 3 / Riverpod / Hive / fl_chart）。
+description: 记工时 - 离线优先的加班工时记录、统计与导出应用（Material 3 / Riverpod / Hive / fl_chart）。
 publish_to: 'none'
-version: 1.4.0+4
+version: 1.5.0+5
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -36,6 +36,9 @@ dependencies:
 
   # 选择本地 CSV 文件（Android 使用系统文件选择器，无需存储权限）
   file_picker: ^8.1.1
+
+  # 打开外部链接（项目主页、更新发布页）
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

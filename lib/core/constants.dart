@@ -6,6 +6,9 @@ class BoxNames {
   static const String settings = 'settings';
   static const String leaves = 'leaves';
   static const String incomeItems = 'incomeItems';
+
+  /// 节假日日历（联网更新 / 文件导入后的数据，缺省为内置数据）
+  static const String holidays = 'holidays';
 }
 
 /// 记录页展示的记录大类
@@ -145,4 +148,37 @@ const double kMonthlyPayDays = 21.75;
 const double kDailyWorkHours = 8.0;
 
 /// 应用版本号（关于页展示）
-const String kAppVersion = '1.4.0';
+const String kAppVersion = '1.5.0';
+
+/// 统计页趋势图的显示样式
+class TrendChartStyles {
+  /// 折线图
+  static const String line = 'line';
+
+  /// 条形图
+  static const String bar = 'bar';
+
+  static String normalize(String? value) => value == bar ? bar : line;
+}
+
+/// 项目主页（GitHub 仓库）
+const String kRepoUrl = 'https://github.com/Zero-Vz/Working_Hours';
+
+/// 开发者主页
+const String kDeveloperUrl = 'https://github.com/Zero-Vz';
+
+/// 开发者名称
+const String kDeveloperName = 'Zero-Vz';
+
+/// 节假日数据默认更新地址（仓库内的 JSON，随发布随时可更新）
+const String kHolidayUpdateUrl =
+    'https://raw.githubusercontent.com/Zero-Vz/Working_Hours/main/'
+    'assets/holidays/holidays.json';
+
+/// 检查软件更新的默认地址（GitHub Releases API）
+const String kReleaseApiUrl =
+    'https://api.github.com/repos/Zero-Vz/Working_Hours/releases/latest';
+
+/// 版本发布页
+const String kReleasesPageUrl =
+    'https://github.com/Zero-Vz/Working_Hours/releases';
