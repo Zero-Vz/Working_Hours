@@ -257,10 +257,25 @@ void main() {
     expect(find.text('按月薪'), findsOneWidget);
     expect(find.text('默认固定加班时薪'), findsOneWidget);
 
-    // 切换到按月薪再切回，保证设置写入正常
+    expect(find.text('月薪'), findsNothing);
+
+    // 切换到按月薪：默认按「生效起止日期」录入，逐月列表默认隐藏
     await tester.tap(find.text('按月薪'));
     await tester.pumpAndSettle();
-    expect(find.text('月薪'), findsOneWidget);
+    expect(find.text('默认月薪'), findsOneWidget);
+    expect(find.text('生效起止日期'), findsOneWidget);
+    expect(find.text('添加生效区间'), findsOneWidget);
+    expect(find.text('按月单独修改'), findsOneWidget);
+    expect(find.text('2026 年 1 月'), findsNothing);
+
+    // 展开后逐月列表可见
+    final monthlySwitch = find.byType(Switch).last;
+    await tester.ensureVisible(monthlySwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(monthlySwitch);
+    await tester.pumpAndSettle();
+    expect(find.text('2026 年 1 月'), findsOneWidget);
+
     await tester.tap(find.text('按时薪'));
     await tester.pumpAndSettle();
   });

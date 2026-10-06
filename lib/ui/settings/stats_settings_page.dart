@@ -87,10 +87,13 @@ class StatsSettingsPage extends ConsumerWidget {
               SwitchListTile(
                 secondary: const Icon(Icons.calendar_view_day_outlined),
                 title: const Text('均摊到每个工作日'),
-                subtitle: const Text(
-                  '把月薪与固定工资项平均分配到当月每个工作日，'
-                  '每日金额趋势才会包含这部分',
-                  style: TextStyle(fontSize: 12),
+                subtitle: Text(
+                  settings.includeSalaryInTotal
+                      ? '月薪已计入总工资，自动平摊到当月每个工作日；'
+                          '本开关控制增扣项是否同样平摊'
+                      : '把增扣项平均分配到当月每个工作日，'
+                          '每日金额趋势才会包含这部分',
+                  style: const TextStyle(fontSize: 12),
                 ),
                 value: settings.spreadToWorkdays,
                 onChanged: notifier.setSpreadToWorkdays,

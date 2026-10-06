@@ -55,10 +55,13 @@ class _LeaveEditPageState extends ConsumerState<LeaveEditPage> {
   }
 
   /// 日薪：月薪 ÷ 21.75，未填月薪则按时薪 × 8
+  ///
+  /// 按月薪模式下取该请假日期生效的月薪（支持生效起止日期与按月调整）。
   double get _dailyWage {
     final settings = ref.read(settingsProvider);
-    if (settings.useMonthlySalary && settings.monthlySalary > 0) {
-      return settings.monthlySalary / kMonthlyPayDays;
+    if (settings.useMonthlySalary) {
+      final salary = settings.salaryForDate(_date);
+      if (salary > 0) return salary / kMonthlyPayDays;
     }
     return settings.effectiveHourlyWage * kDailyWorkHours;
   }

@@ -304,7 +304,8 @@ final yearBreakdownProvider =
 
 /// 月度金额趋势：当月每天的金额（元），长度 = 当月天数
 ///
-/// 展示总工资模式下，开启均摊时会把月薪与固定工资项平摊到每个工作日。
+/// 展示总工资模式下，开启「月薪计入总工资」或均摊开关时，
+/// 会把月薪与固定工资项平摊到每个工作日（每个工作日 = 一天 8 小时的工资）。
 final monthDailyAmountProvider =
     Provider.family<List<double>, YearMonth>((ref, key) {
   final records = ref.watch(recordsProvider);
@@ -318,7 +319,7 @@ final monthDailyAmountProvider =
     result[record.date.day - 1] += WorkCalc.amountOf(record, settings);
   }
 
-  if (fixed != 0 && settings.spreadToWorkdays) {
+  if (fixed != 0 && settings.spreadDailyAmount) {
     final workdays = _workdaysInMonth(key);
     if (workdays > 0) {
       final perDay = fixed / workdays;

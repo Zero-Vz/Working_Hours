@@ -4,6 +4,7 @@ import 'package:hive/hive.dart';
 import '../core/constants.dart';
 import '../core/utils/time_utils.dart';
 import '../data/models/app_settings.dart';
+import '../data/models/salary_range.dart';
 import 'records_provider.dart';
 
 /// 应用设置
@@ -208,6 +209,23 @@ class SettingsNotifier extends Notifier<AppSettings> {
     _recalc();
   }
 
+  /// 生效起止日期区间（整体替换，写入时按起始日期排序）
+  void setSalaryRanges(List<SalaryRange> ranges) {
+    final sorted = List<SalaryRange>.from(ranges)
+      ..sort((a, b) => a.start.compareTo(b.start));
+    state = state.copyWith(salaryRanges: sorted);
+    _persist();
+    _recalc();
+  }
+
+  /// 是否启用「按月单独修改月薪」（默认关闭）
+  void setUseSalaryOverrides(bool value) {
+    if (state.useSalaryOverrides == value) return;
+    state = state.copyWith(useSalaryOverrides: value);
+    _persist();
+    _recalc();
+  }
+
   /// 导入备份中的设置（仅接受已知键，导入后按新规则重算记录）
   Future<void> applyImported(Map<String, dynamic> data) async {
     const allowed = <String>{
@@ -230,6 +248,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
       'showLeaveRecords',
       'showIncomeItems',
       'salaryOverrides',
+      'salaryRanges',
+      'useSalaryOverrides',
       'trendChartStyle',
       'showHoursTrend',
       'showAmountTrend',

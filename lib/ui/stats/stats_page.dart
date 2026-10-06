@@ -435,7 +435,7 @@ class StatsPage extends ConsumerWidget {
         const SizedBox(height: 4),
         Text(
           '月薪${data.salary > 0 ? '已' : '未'}计入 · '
-          '均摊${settings.spreadToWorkdays ? '已' : '未'}开启',
+          '均摊${settings.spreadDailyAmount ? '已' : '未'}开启',
           style: theme.textTheme.labelSmall?.copyWith(
             color: scheme.outline,
           ),

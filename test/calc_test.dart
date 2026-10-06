@@ -5,6 +5,7 @@ import 'package:working_hours/core/utils/time_utils.dart';
 import 'package:working_hours/data/csv/record_csv_service.dart';
 import 'package:working_hours/data/models/app_settings.dart';
 import 'package:working_hours/data/models/overtime_record.dart';
+import 'package:working_hours/data/models/salary_range.dart';
 
 void main() {
   group('时长计算', () {
@@ -155,6 +156,7 @@ void main() {
         salaryMode: 'monthly',
         monthlySalary: 21750, // 时薪 125
         salaryOverrides: {'2026-10': 10875.0},
+        useSalaryOverrides: true,
       );
       // 未单独设置的月份仍用默认月薪
       expect(settings.salaryFor(DateTime(2026, 9, 5)), 21750);
@@ -173,6 +175,103 @@ void main() {
         salaryOverrides: {'2026-10': 10875.0},
       );
       expect(hourly.effectiveHourlyWageFor(DateTime(2026, 10, 5)), 66);
+    });
+
+    test('按月修改默认不开启：未开启时忽略逐月设置', () {
+      const settings = AppSettings(
+        salaryMode: 'monthly',
+        monthlySalary: 21750,
+        salaryOverrides: {'2026-10': 10875.0},
+      );
+      expect(settings.useSalaryOverrides, isFalse);
+      expect(settings.salaryFor(DateTime(2026, 10, 5)), 21750);
+      expect(settings.salaryForYearMonth(2026, 10), 21750);
+    });
+
+    test('生效起止日期：按区间取月薪，未覆盖的月份用默认月薪', () {
+      final settings = AppSettings(
+        salaryMode: 'monthly',
+        monthlySalary: 21750,
+        salaryRanges: [
+          SalaryRange(
+            start: DateTime(2026, 1, 1),
+            end: DateTime(2026, 6, 30),
+            amount: 18000,
+          ),
+          SalaryRange(
+            start: DateTime(2026, 7, 1),
+            amount: 24000, // 至今
+          ),
+        ],
+      );
+      // 区间内
+      expect(settings.salaryForDate(DateTime(2026, 3, 12)), 18000);
+      expect(settings.salaryForDate(DateTime(2026, 6, 30)), 18000);
+      expect(settings.salaryForDate(DateTime(2026, 7, 1)), 24000);
+      expect(settings.salaryForDate(DateTime(2026, 12, 31)), 24000);
+      // 区间外的历史月份用默认月薪；「至今」区间对之后的日期持续生效
+      expect(settings.salaryForDate(DateTime(2025, 12, 31)), 21750);
+      expect(settings.salaryForDate(DateTime(2027, 1, 1)), 24000);
+      // 月度汇总
+      expect(settings.salaryForYearMonth(2026, 3), 18000);
+      expect(settings.salaryForYearMonth(2026, 7), 24000);
+      expect(settings.salaryForYearMonth(2026, 1), 18000);
+      expect(settings.salaryForYearMonth(2026, 6), 18000);
+      expect(settings.salaryForYearMonth(2026, 11), 24000);
+      // 时薪按当日月薪反推
+      expect(
+        settings.effectiveHourlyWageFor(DateTime(2026, 3, 12)),
+        closeTo(18000 / 21.75 / 8, 0.0001),
+      );
+      expect(
+        settings.effectiveHourlyWageFor(DateTime(2026, 8, 1)),
+        closeTo(24000 / 21.75 / 8, 0.0001),
+      );
+    });
+
+    test('生效起止日期：逐月设置优先于区间', () {
+      final settings = AppSettings(
+        salaryMode: 'monthly',
+        monthlySalary: 21750,
+        useSalaryOverrides: true,
+        salaryOverrides: const {'2026-05': 9999.0},
+        salaryRanges: [
+          SalaryRange(start: DateTime(2026, 1, 1), amount: 24000),
+        ],
+      );
+      expect(settings.salaryForDate(DateTime(2026, 5, 5)), 9999);
+      expect(settings.salaryForYearMonth(2026, 5), 9999);
+      expect(settings.salaryForDate(DateTime(2026, 4, 5)), 24000);
+    });
+
+    test('区间月中开始 / 结束时按该月取值', () {
+      final settings = AppSettings(
+        monthlySalary: 21750,
+        salaryRanges: [
+          SalaryRange(
+            start: DateTime(2026, 9, 1),
+            end: DateTime(2026, 10, 14),
+            amount: 20000,
+          ),
+          SalaryRange(start: DateTime(2026, 10, 15), amount: 26000),
+        ],
+      );
+      expect(settings.salaryForYearMonth(2026, 9), 20000);
+      expect(settings.salaryForYearMonth(2026, 10), 26000);
+      expect(settings.salaryForDate(DateTime(2026, 10, 10)), 20000);
+      expect(settings.salaryForDate(DateTime(2026, 10, 20)), 26000);
+    });
+
+    test('月薪计入总工资时每日金额自动平摊到工作日', () {
+      const included = AppSettings(
+        showTotalSalary: true,
+        includeSalaryInTotal: true,
+      );
+      expect(included.spreadDailyAmount, isTrue);
+      const spreadOnly = AppSettings(spreadToWorkdays: true);
+      expect(spreadOnly.spreadDailyAmount, isTrue);
+      const none = AppSettings();
+      expect(none.spreadDailyAmount, isFalse);
     });
   });
 

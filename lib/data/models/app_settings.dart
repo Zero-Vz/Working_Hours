@@ -4,6 +4,7 @@ import 'package:hive/hive.dart';
 import '../../core/constants.dart';
 import '../../core/utils/calc.dart';
 import '../../core/utils/time_utils.dart';
+import 'salary_range.dart';
 
 /// 应用设置（存放在 settings Box 中，全部为本地键值）
 class AppSettings {
@@ -30,6 +31,8 @@ class AppSettings {
     this.lastEndTime = '21:00',
     this.lastFixedDuration = 180,
     this.salaryOverrides = const <String, double>{},
+    this.salaryRanges = const <SalaryRange>[],
+    this.useSalaryOverrides = false,
     this.trendChartStyle = TrendChartStyles.line,
     this.showHoursTrend = true,
     this.showAmountTrend = true,
@@ -98,6 +101,12 @@ class AppSettings {
   /// 按月单独设置的月薪（键为年月，如 2026-10；缺省月份用 [monthlySalary]）
   final Map<String, double> salaryOverrides;
 
+  /// 生效起止日期区间（按月薪录入的默认方式，按起始日期升序）
+  final List<SalaryRange> salaryRanges;
+
+  /// 是否启用「按月单独修改月薪」（默认关闭，展开逐月列表后才生效）
+  final bool useSalaryOverrides;
+
   /// 统计页趋势图样式：line（折线）/ bar（条形）
   final String trendChartStyle;
 
@@ -136,22 +145,62 @@ class AppSettings {
     return hourlyWage;
   }
 
-  /// 某年月生效的月薪（有按月调整时取调整值，否则取默认月薪）
-  double salaryForYearMonth(int year, int month) =>
-      salaryOverrides[yearMonthKey(year, month)] ?? monthlySalary;
+  /// 某日期命中的生效区间（重叠时取起始日期更晚的一段）
+  SalaryRange? salaryRangeAt(DateTime date) {
+    SalaryRange? best;
+    for (final range in salaryRanges) {
+      if (range.covers(date) && (best == null || !range.start.isBefore(best.start))) {
+        best = range;
+      }
+    }
+    return best;
+  }
+
+  /// 某日期生效的月薪（按月薪模式）：
+  /// 开启按月单独修改时优先取该月调整值，其次取命中的生效区间，最后取默认月薪
+  double salaryForDate(DateTime date) {
+    if (useSalaryOverrides) {
+      final override = salaryOverrides[yearMonthKey(date.year, date.month)];
+      if (override != null) return override;
+    }
+    return salaryRangeAt(date)?.amount ?? monthlySalary;
+  }
+
+  /// 某年月生效的月薪（统计月度汇总使用）
+  ///
+  /// 区间月中开始 / 结束时，先取该月 15 日的值，再退回覆盖该月的区间。
+  double salaryForYearMonth(int year, int month) {
+    if (useSalaryOverrides) {
+      final override = salaryOverrides[yearMonthKey(year, month)];
+      if (override != null) return override;
+    }
+    final fromMid = salaryRangeAt(DateTime(year, month, 15));
+    if (fromMid != null) return fromMid.amount;
+    SalaryRange? overlapping;
+    for (final range in salaryRanges) {
+      if (range.overlapsMonth(year, month) &&
+          (overlapping == null || !range.start.isBefore(overlapping.start))) {
+        overlapping = range;
+      }
+    }
+    return overlapping?.amount ?? monthlySalary;
+  }
 
   /// 某日期所在月份生效的月薪
   double salaryFor(DateTime date) => salaryForYearMonth(date.year, date.month);
 
-  /// 某日期所在月份生效的时薪（按月薪反推时会考虑该月的月薪调整）
+  /// 某日期所在月份生效的时薪（按月薪反推时会考虑该日的月薪）
   double effectiveHourlyWageFor(DateTime date) {
     if (salaryMode == SalaryModes.monthly) {
-      final salary = salaryFor(date);
+      final salary = salaryForDate(date);
       if (salary > 0) return WorkCalc.hourlyFromMonthly(salary);
       return hourlyWage;
     }
     return hourlyWage;
   }
+
+  /// 每日金额趋势是否平摊固定金额（月薪计入总工资时自动平摊到每个工作日）
+  bool get spreadDailyAmount => spreadToWorkdays || includeSalaryInTotal;
 
   /// 是否使用月薪反推时薪
   bool get useMonthlySalary => salaryMode == SalaryModes.monthly;
@@ -193,6 +242,8 @@ class AppSettings {
     String? lastEndTime,
     int? lastFixedDuration,
     Map<String, double>? salaryOverrides,
+    List<SalaryRange>? salaryRanges,
+    bool? useSalaryOverrides,
     String? trendChartStyle,
     bool? showHoursTrend,
     bool? showAmountTrend,
@@ -224,6 +275,8 @@ class AppSettings {
       lastEndTime: lastEndTime ?? this.lastEndTime,
       lastFixedDuration: lastFixedDuration ?? this.lastFixedDuration,
       salaryOverrides: salaryOverrides ?? this.salaryOverrides,
+      salaryRanges: salaryRanges ?? this.salaryRanges,
+      useSalaryOverrides: useSalaryOverrides ?? this.useSalaryOverrides,
       trendChartStyle: trendChartStyle ?? this.trendChartStyle,
       showHoursTrend: showHoursTrend ?? this.showHoursTrend,
       showAmountTrend: showAmountTrend ?? this.showAmountTrend,
@@ -253,6 +306,16 @@ class AppSettings {
         if (key is String && amount != null) overrides[key] = amount;
       });
     }
+
+    final ranges = <SalaryRange>[];
+    final rawRanges = box.get('salaryRanges');
+    if (rawRanges is List) {
+      for (final item in rawRanges) {
+        final range = SalaryRange.fromMap(item);
+        if (range != null) ranges.add(range);
+      }
+    }
+    ranges.sort((a, b) => a.start.compareTo(b.start));
 
     // 地址类设置：清空时回退到默认地址
     String url(String key, String fallback) {
@@ -285,6 +348,8 @@ class AppSettings {
       lastEndTime: text('lastEndTime', '21:00'),
       lastFixedDuration: integer('lastFixedDuration', 180),
       salaryOverrides: overrides,
+      salaryRanges: ranges,
+      useSalaryOverrides: flag('useSalaryOverrides'),
       trendChartStyle: TrendChartStyles.normalize(
         box.get('trendChartStyle') as String?,
       ),
@@ -321,6 +386,8 @@ class AppSettings {
         'lastEndTime': lastEndTime,
         'lastFixedDuration': lastFixedDuration,
         'salaryOverrides': salaryOverrides,
+        'salaryRanges': [for (final range in salaryRanges) range.toMap()],
+        'useSalaryOverrides': useSalaryOverrides,
         'trendChartStyle': trendChartStyle,
         'showHoursTrend': showHoursTrend,
         'showAmountTrend': showAmountTrend,
